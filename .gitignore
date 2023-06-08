@@ -20,4 +20,6 @@ tools/tracy
 # We have a recommended vscode config under tools/vscode, which you can symlink to .vscode.
 /.vscode
 
+integration-test-dir
+
 docs_website

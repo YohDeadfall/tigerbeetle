@@ -1,5 +1,9 @@
+//! Utilities to help in writing scripts for builds/testing.
+
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
+
 const assert = std.debug.assert;
 
 pub const cmd_sep = if (builtin.os.tag == .windows) ";" else "&&";
@@ -83,7 +87,6 @@ pub fn shell_wrap(arena: *std.heap.ArenaAllocator, cmd: []const u8) ![]const []c
     if (builtin.os.tag == .windows) {
         try wrapped.append(try std.fmt.allocPrint(
             arena.allocator(),
-            \\Set-PSDebug -Trace 1
             \\
             \\{s}
         ,
@@ -160,26 +163,37 @@ pub fn git_root(arena: *std.heap.ArenaAllocator) ![]const u8 {
 pub fn script_filename(arena: *std.heap.ArenaAllocator, parts: []const []const u8) ![]const u8 {
     var file_name = std.ArrayList(u8).init(arena.allocator());
     const sep = if (builtin.os.tag == .windows) '\\' else '/';
-    _ = try file_name.append('.');
+    try file_name.append('.');
     for (parts) |part| {
-        _ = try file_name.append(sep);
-        _ = try file_name.appendSlice(part);
+        try file_name.append(sep);
+        try file_name.appendSlice(part);
     }
 
-    _ = try file_name.appendSlice(if (builtin.os.tag == .windows) ".bat" else ".sh");
+    try file_name.appendSlice(if (builtin.os.tag == .windows) ".bat" else ".sh");
     return file_name.items;
 }
 
 pub fn binary_filename(arena: *std.heap.ArenaAllocator, parts: []const []const u8) ![]const u8 {
     var file_name = std.ArrayList(u8).init(arena.allocator());
     const sep = if (builtin.os.tag == .windows) '\\' else '/';
-    _ = try file_name.append('.');
-    for (parts) |part| {
-        _ = try file_name.append(sep);
-        _ = try file_name.appendSlice(part);
+    for (parts) |part, i| {
+        var skip_sep = false;
+        if (i == 0) {
+            if (part[0] != '/') {
+                try file_name.append('.');
+            } else {
+                skip_sep = true;
+            }
+        }
+
+        if (!skip_sep) {
+            try file_name.append(sep);
+        }
+
+        try file_name.appendSlice(part);
     }
 
-    _ = try file_name.appendSlice(if (builtin.os.tag == .windows) ".exe" else "");
+    try file_name.appendSlice(if (builtin.os.tag == .windows) ".exe" else "");
     return file_name.items;
 }
 
@@ -214,4 +228,15 @@ pub fn write_shell_newlines_into_single_line(
 
     // The above commands all end with ` {cmd_sep} `
     try into.appendSlice("echo ok");
+}
+
+pub fn read_file(arena: *std.heap.ArenaAllocator, file_name: []const u8) ![]const u8 {
+    const file = try std.fs.cwd().openFile(file_name, .{});
+    defer file.close();
+
+    const file_size = try file.getEndPos();
+    var contents = try arena.allocator().alloc(u8, file_size);
+    const n = try file.read(contents);
+    assert(n == file_size);
+    return contents;
 }

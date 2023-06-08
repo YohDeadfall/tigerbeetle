@@ -330,6 +330,11 @@ pub fn build(b: *std.build.Builder) void {
             mode,
             target,
         );
+        repl_integration(
+            b,
+            mode,
+            target,
+        );
     }
 
     {
@@ -974,6 +979,21 @@ fn client_docs(
     client_docs_build.dependOn(&install_step.step);
 
     maybe_execute(b, allocator, client_docs_build, "client_docs");
+}
+
+fn repl_integration(
+    b: *std.build.Builder,
+    mode: Mode,
+    target: CrossTarget,
+) void {
+    const repl_integration_build = b.step("repl_integration", "Build cli client integration test script.");
+    const binary = b.addExecutable("repl_integration", "src/clients/repl_integration.zig");
+    binary.setBuildMode(mode);
+    binary.setTarget(target);
+    repl_integration_build.dependOn(&binary.step);
+
+    const install_step = b.addInstallArtifact(binary);
+    repl_integration_build.dependOn(&install_step.step);
 }
 
 /// Detects the system's JVM.
