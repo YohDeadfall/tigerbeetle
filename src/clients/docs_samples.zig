@@ -107,42 +107,32 @@ pub const samples = [_]Sample{
         \\
         \\This project starts by creating two accounts (`1` and `2`).
         \\
-        \\## 2. Create pending transfer
+        \\## 2. Create pending transfers
         \\
-        \\Then it begins 5
-        \\pending transfers of amounts `100` to `500`, incrementing by
-        \\`100` for each transfer.
+        \\Then it begins 5 pending transfers of amounts `100` to
+        \\`500`, incrementing by `100` for each transfer.
         \\
         \\## 3. Fetch and validate pending account balances
         \\
         \\Then it fetches both accounts and validates that **account `1`** has:
         \\ * `debits_posted = 0`
         \\ * `credits_posted = 0`
-        \\ * `debits_pending = 500`
+        \\ * `debits_pending = 1500`
         \\ * and `credits_pending = 0`
         \\
         \\And that **account `2`** has:
         \\ * `debits_posted = 0`
         \\ * `credits_posted = 0`
         \\ * `debits_pending = 0`
-        \\ * and `credits_pending = 500`
+        \\ * and `credits_pending = 1500`
         \\
-        \\(This is because a pending
-        \\transfer only affects **pending** credits and debits on accounts,
-        \\not **posted** credits and debits.)
+        \\(This is because a pending transfer only affects **pending**
+        \\credits and debits on accounts, not **posted** credits and
+        \\debits.)
         \\
-        \\## 4. Post pending transfer
+        \\## 4. Post and void alternating transfers
         \\
-        \\Then it creates a second transfer that marks the first
-        \\transfer as posted.
-        \\
-        \\## 5. Fetch and validate transfers
-        \\
-        \\Then it fetches both transfers, validates
-        \\that the two transfers exist, validates that the first
-        \\transfer had (and still has) a `pending` flag, and validates
-        \\that the second transfer had (and still has) a
-        \\`post_pending_transfer` flag.
+        \\Then it alternatively posts and voids each transfer, checking account balances after each transfer.
         \\
         \\## 6. Fetch and validate final account balances
         \\
