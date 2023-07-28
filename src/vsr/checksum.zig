@@ -72,7 +72,7 @@ const Aegis128 = struct {
             absorb(blocks, &src);
         }
         // NB: Intentionally pass source.len as adlen, *not* as mlen.
-        return @bitCast(mac(blocks, source.len, 0));
+        return @bitCast(u128, mac(blocks, source.len, 0));
     }
 };
 
@@ -94,10 +94,18 @@ pub fn checksum(source: []const u8) u128 {
 }
 
 fn std_checksum(source: []const u8) u128 {
+    // NB: for hashing purposes, we pass `source` to an AEAD scheme as AD (Associated Data).
+    // This makes sense, because AD is suppose to be a known plaintext, which our `source` is for
+    // the purpose of hashing
+    var c: [0]u8 = .{};
     var tag: [16]u8 = undefined;
+    const m: [0]u8 = .{};
+    const ad = source;
+    const nonce: [16]u8 = [_]u8{0x00} ** 16;
     const key: [16]u8 = [_]u8{0x00} ** 16;
-    std.crypto.auth.aegis.Aegis128LMac_128.create(&tag, source, &key);
-    return @bitCast(tag);
+
+    std.crypto.aead.aegis.Aegis128L.encrypt(&c, &tag, &m, ad, nonce, key);
+    return @bitCast(u128, tag);
 }
 
 test "Aegis test vectors" {
@@ -171,7 +179,7 @@ test "Aegis stability" {
     var subcase: usize = 0;
     while (subcase < 128) : (subcase += 1) {
         const message = buf[0..subcase];
-        @memset(message, 0);
+        std.mem.set(u8, message, 0);
 
         cases[case_index] = checksum(message);
         case_index += 1;
@@ -181,8 +189,8 @@ test "Aegis stability" {
     subcase = 0;
     while (subcase < 64 * 8) : (subcase += 1) {
         const message = buf[0..64];
-        @memset(message, 0);
-        message[@divFloor(subcase, 8)] = @shlExact(@as(u8, 1), @as(u3, @intCast(subcase % 8)));
+        std.mem.set(u8, message, 0);
+        message[@divFloor(subcase, 8)] = @shlExact(@as(u8, 1), @intCast(u3, subcase % 8));
 
         cases[case_index] = checksum(message);
         case_index += 1;
@@ -200,11 +208,11 @@ test "Aegis stability" {
     }
 
     // Sanity check that we are not getting trivial answers.
-    // for (cases) |case_a, i| {
-    //     assert(case_a != 0);
-    //     assert(case_a != std.math.maxInt(u128));
-    //     for (cases[0..i]) |case_b| assert(case_a != case_b);
-    // }
+    for (cases) |case_a, i| {
+        assert(case_a != 0);
+        assert(case_a != std.math.maxInt(u128));
+        for (cases[0..i]) |case_b| assert(case_a != case_b);
+    }
 
     // Finally, checksum everything once again. If the number here changes, we broke compatibility
     // in a bad way!
