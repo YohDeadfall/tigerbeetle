@@ -71,7 +71,8 @@ const Aegis128 = struct {
             mem.copy(u8, src[0 .. source.len % 32], source[i .. i + source.len % 32]);
             absorb(blocks, &src);
         }
-        return @bitCast(u128, mac(blocks, 0, source.len));
+        // NB: Intentionally pass source.len as adlen, *not* as mlen.
+        return @bitCast(u128, mac(blocks, source.len, 0));
     }
 };
 
@@ -92,15 +93,18 @@ pub fn checksum(source: []const u8) u128 {
     return Aegis128.hash(&state_copy, source);
 }
 
-fn std_checksum(cipher: []u8, msg: []const u8) u128 {
-    assert(cipher.len == msg.len);
-
-    const ad = [_]u8{};
-    const key: [16]u8 = [_]u8{0x00} ** 16;
-    const nonce: [16]u8 = [_]u8{0x00} ** 16;
-
+fn std_checksum(source: []const u8) u128 {
+    // NB: for hashing purposes, we pass `source` to an AEAD scheme as AD (Associated Data).
+    // This makes sense, because AD is suppose to be a known plaintext, which our `source` is for
+    // the purpose of hashing
+    var c: [0]u8 = .{};
     var tag: [16]u8 = undefined;
-    std.crypto.aead.aegis.Aegis128L.encrypt(cipher, &tag, msg, &ad, nonce, key);
+    const m: [0]u8 = .{};
+    const ad = source;
+    const nonce: [16]u8 = [_]u8{0x00} ** 16;
+    const key: [16]u8 = [_]u8{0x00} ** 16;
+
+    std.crypto.aead.aegis.Aegis128L.encrypt(&c, &tag, &m, ad, nonce, key);
     return @bitCast(u128, tag);
 }
 
@@ -110,20 +114,18 @@ test "Aegis test vectors" {
         hash: u128,
     };
 
-    var cipher_buf: [16]u8 = undefined;
     for (&[_]TestVector{
         .{
             .source = &[_]u8{0x00} ** 16,
-            .hash = @byteSwap(@as(u128, 0xf4d997cc9b94227ada4fe4165422b1c8)),
+            .hash = @byteSwap(@as(u128, 0xf72ad48dd05dd1656133101cd4be3a26)),
         },
         .{
             .source = &[_]u8{},
             .hash = @byteSwap(@as(u128, 0x83cc600dc4e3e7e62d4055826174f149)),
         },
     }) |test_vector| {
-        const cipher = cipher_buf[0..test_vector.source.len];
         try testing.expectEqual(test_vector.hash, checksum(test_vector.source));
-        try testing.expectEqual(test_vector.hash, std_checksum(cipher, test_vector.source));
+        try testing.expectEqual(test_vector.hash, std_checksum(test_vector.source));
     }
 }
 
@@ -136,19 +138,15 @@ test "Aegis simple fuzzing" {
     var msg_buf = try testing.allocator.alloc(u8, msg_max);
     defer testing.allocator.free(msg_buf);
 
-    var cipher_buf = try testing.allocator.alloc(u8, msg_max);
-    defer testing.allocator.free(cipher_buf);
-
     var i: usize = 0;
     while (i < 1_000) : (i += 1) {
         const msg_len = prng.random().intRangeAtMostBiased(usize, msg_min, msg_max);
-        const cipher = cipher_buf[0..msg_len];
         const msg = msg_buf[0..msg_len];
         prng.fill(msg);
 
         // Make sure it matches with stdlib.
         const msg_checksum = checksum(msg);
-        try testing.expectEqual(msg_checksum, std_checksum(cipher, msg));
+        try testing.expectEqual(msg_checksum, std_checksum(msg));
 
         // Sanity check that it's a pure function.
         const msg_checksum_again = checksum(msg);
@@ -159,7 +157,7 @@ test "Aegis simple fuzzing" {
         const random_bit = @shlExact(@as(u8, 1), prng.random().int(u3));
         msg[random_byte] ^= random_bit;
         const changed_checksum = checksum(msg);
-        try testing.expectEqual(changed_checksum, std_checksum(cipher, msg));
+        try testing.expectEqual(changed_checksum, std_checksum(msg));
         try testing.expect(changed_checksum != msg_checksum);
 
         // Further, test avalanching -- flipping a single bit should randomly flip
@@ -220,5 +218,5 @@ test "Aegis stability" {
     // in a bad way!
     comptime assert(builtin.target.cpu.arch.endian() == .Little);
     const hash = checksum(std.mem.sliceAsBytes(&cases));
-    try testing.expectEqual(hash, 0x5D6771A24972117A33A728480F4D501F);
+    try testing.expectEqual(hash, 0x82dcaacf4875b279446825b6830d1263);
 }
