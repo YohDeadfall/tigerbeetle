@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const mem = std.mem;
 const testing = std.testing;
 
-// TODO(king): Replace with std.crypto.aead.aegis.Aegis128LMac_128 once Zig is updated.
+// TODO(king): Replace with std.crypto.auth.aegis.Aegis128LMac_128 once Zig is updated.
 const Aegis128 = struct {
     const AesBlock = std.crypto.core.aes.Block;
     const State = [8]AesBlock;
@@ -94,9 +94,9 @@ pub fn checksum(source: []const u8) u128 {
 }
 
 fn std_checksum(source: []const u8) u128 {
-    // NB: for hashing purposes, we pass `source` to an AEAD scheme as AD (Associated Data).
-    // This makes sense, because AD is suppose to be a known plaintext, which our `source` is for
-    // the purpose of hashing
+    // NB: For hashing purposes, we pass `source` to an AEAD scheme as AD (Associated Data).
+    // This makes sense, because AD is supposed to be a known plaintext, which our `source` is for
+    // the purpose of hashing.
     var c: [0]u8 = .{};
     var tag: [16]u8 = undefined;
     const m: [0]u8 = .{};
