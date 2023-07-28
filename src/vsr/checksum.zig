@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const mem = std.mem;
 const testing = std.testing;
@@ -92,7 +93,7 @@ pub fn checksum(source: []const u8) u128 {
 }
 
 fn std_checksum(cipher: []u8, msg: []const u8) u128 {
-    std.debug.assert(cipher.len == msg.len);
+    assert(cipher.len == msg.len);
 
     const ad = [_]u8{};
     const key: [16]u8 = [_]u8{0x00} ** 16;
@@ -154,9 +155,70 @@ test "Aegis simple fuzzing" {
         try testing.expectEqual(msg_checksum, msg_checksum_again);
 
         // Change the message and make sure the checksum changes.
-        msg[prng.random().uintLessThan(usize, msg.len)] +%= 1;
+        const random_byte = prng.random().uintLessThan(usize, msg.len);
+        const random_bit = @shlExact(@as(u8, 1), prng.random().int(u3));
+        msg[random_byte] ^= random_bit;
         const changed_checksum = checksum(msg);
         try testing.expectEqual(changed_checksum, std_checksum(cipher, msg));
         try testing.expect(changed_checksum != msg_checksum);
+
+        // Further, test avalanching -- flipping a single bit should randomly flip
+        // all outputs bits, so we expect about half of the bits to stay the same,
+        // and a big deviation from that would be surprising.
+        const different_bits = @popCount(changed_checksum ^ msg_checksum);
+        try testing.expect(different_bits > 32);
+        try testing.expect(different_bits < 128 - 32);
     }
+}
+
+// Change detector test to ensure we don't inadvertency modify our checksum function.
+test "Aegis stability" {
+    var buf: [1024]u8 = undefined;
+    var cases: [896]u128 = undefined;
+    var case_index: usize = 0;
+
+    // Zeros of various lengths.
+    var subcase: usize = 0;
+    while (subcase < 128) : (subcase += 1) {
+        const message = buf[0..subcase];
+        std.mem.set(u8, message, 0);
+
+        cases[case_index] = checksum(message);
+        case_index += 1;
+    }
+
+    // 64 bytes with exactly one bit set.
+    subcase = 0;
+    while (subcase < 64 * 8) : (subcase += 1) {
+        const message = buf[0..64];
+        std.mem.set(u8, message, 0);
+        message[@divFloor(subcase, 8)] = @shlExact(@as(u8, 1), @intCast(u3, subcase % 8));
+
+        cases[case_index] = checksum(message);
+        case_index += 1;
+    }
+
+    // Pseudo-random data from a specific PRNG of various lengths.
+    var prng = std.rand.Xoshiro256.init(92);
+    subcase = 0;
+    while (subcase < 256) : (subcase += 1) {
+        const message = buf[0 .. subcase + 13];
+        prng.fill(message);
+
+        cases[case_index] = checksum(message);
+        case_index += 1;
+    }
+
+    // Sanity check that we are not getting trivial answers.
+    for (cases) |case_a, i| {
+        assert(case_a != 0);
+        assert(case_a != std.math.maxInt(u128));
+        for (cases[0..i]) |case_b| assert(case_a != case_b);
+    }
+
+    // Finally, checksum everything once again. If the number here changes, we broke compatibility
+    // in a bad way!
+    comptime assert(builtin.target.cpu.arch.endian() == .Little);
+    const hash = checksum(std.mem.sliceAsBytes(&cases));
+    try testing.expectEqual(hash, 0x5D6771A24972117A33A728480F4D501F);
 }
