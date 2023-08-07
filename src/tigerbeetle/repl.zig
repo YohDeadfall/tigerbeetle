@@ -488,6 +488,9 @@ pub fn ReplType(comptime MessageBus: type) type {
                     Parser.Error.BadKeyValuePair,
                     Parser.Error.MissingEqualBetweenKeyValuePair,
                     Parser.Error.NoSyntaxMatch,
+                    // TODO: This wil be more convenient to express
+                    // once https://github.com/ziglang/zig/issues/2473 is
+                    // in.
                     => return,
 
                     // An unexpected error for which we do
@@ -590,6 +593,9 @@ pub fn ReplType(comptime MessageBus: type) type {
                             Parser.Error.BadKeyValuePair,
                             Parser.Error.MissingEqualBetweenKeyValuePair,
                             Parser.Error.NoSyntaxMatch,
+                            // TODO: This wil be more convenient to express
+                            // once https://github.com/ziglang/zig/issues/2473 is
+                            // in.
                             => std.os.exit(1),
 
                             // An unexpected error for which we do
