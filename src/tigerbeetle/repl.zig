@@ -720,6 +720,7 @@ pub fn ReplType(comptime MessageBus: type) type {
         }
 
         fn display_object(object: anytype) !void {
+            assert(@TypeOf(object) == tb.Account or @TypeOf(object) == tb.Transfer);
             try print("{{\n", .{});
             inline for (@typeInfo(@TypeOf(object.*)).Struct.fields) |object_field, i| {
                 if (comptime std.mem.eql(u8, object_field.name, "reserved")) {
