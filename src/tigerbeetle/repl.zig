@@ -20,9 +20,18 @@ fn print(comptime fmt: []const u8, args: anytype) !void {
     try stdout.print(fmt, args);
 }
 
-pub const Parse = struct {
+pub const Parser = struct {
     input: []const u8,
     offset: usize = 0,
+
+    pub const Error = error{
+        BadKeyValuePair,
+        BadValue,
+        BadOperation,
+        BadIdentifier,
+        MissingEqualBetweenKeyValuePair,
+        NoSyntaxMatch,
+    };
 
     pub const Operation = enum {
         none,
@@ -53,7 +62,7 @@ pub const Parse = struct {
     };
 
     fn fail_at(
-        parse: *Parse,
+        parse: *Parser,
         comptime fmt: []const u8,
         args: anytype,
     ) !void {
@@ -90,7 +99,7 @@ pub const Parse = struct {
         try stderr.print(fmt, args);
     }
 
-    fn eat_whitespace(parse: *Parse) void {
+    fn eat_whitespace(parse: *Parser) void {
         while (parse.offset < parse.input.len and
             std.ascii.isSpace(parse.input[parse.offset]))
         {
@@ -98,7 +107,7 @@ pub const Parse = struct {
         }
     }
 
-    fn parse_identifier(parse: *Parse) []const u8 {
+    fn parse_identifier(parse: *Parser) []const u8 {
         parse.eat_whitespace();
         const after_whitespace = parse.offset;
 
@@ -112,7 +121,7 @@ pub const Parse = struct {
         return parse.input[after_whitespace..parse.offset];
     }
 
-    fn parse_syntax_char(parse: *Parse, syntax_char: u8) !void {
+    fn parse_syntax_char(parse: *Parser, syntax_char: u8) !void {
         parse.eat_whitespace();
 
         if (parse.offset < parse.input.len and
@@ -122,11 +131,11 @@ pub const Parse = struct {
             return;
         }
 
-        return error.NoSyntaxMatch;
+        return Error.NoSyntaxMatch;
     }
 
     fn parse_value(
-        parse: *Parse,
+        parse: *Parser,
     ) []const u8 {
         parse.eat_whitespace();
         const after_whitespace = parse.offset;
@@ -135,7 +144,7 @@ pub const Parse = struct {
             const c = parse.input[parse.offset];
             if (!(std.ascii.isAlNum(c) or c == '_' or c == '|')) {
                 // Allows flag fields to have whitespace before a '|'.
-                var copy = Parse{ .input = parse.input, .offset = parse.offset };
+                var copy = Parser{ .input = parse.input, .offset = parse.offset };
                 copy.eat_whitespace();
                 if (copy.offset < parse.input.len and parse.input[copy.offset] == '|') {
                     parse.offset = copy.offset;
@@ -162,58 +171,58 @@ pub const Parse = struct {
 
     fn match_arg(
         out: *ObjectSyntaxTree,
-        key: []const u8,
-        value: []const u8,
+        key_to_validate: []const u8,
+        value_to_validate: []const u8,
     ) !void {
-        inline for (@typeInfo(ObjectSyntaxTree).Union.fields) |enum_field| {
-            if (std.mem.eql(u8, @tagName(out.*), enum_field.name)) {
-                var sub = @field(out, enum_field.name);
-                const SubT = @TypeOf(sub);
+        inline for (@typeInfo(ObjectSyntaxTree).Union.fields) |object_syntax_tree_field| {
+            if (std.mem.eql(u8, @tagName(out.*), object_syntax_tree_field.name)) {
+                var active_value = @field(out, object_syntax_tree_field.name);
+                const ActiveValueType = @TypeOf(active_value);
 
-                inline for (@typeInfo(SubT).Struct.fields) |field| {
-                    if (std.mem.eql(u8, field.name, key)) {
+                inline for (@typeInfo(ActiveValueType).Struct.fields) |active_value_field| {
+                    if (std.mem.eql(u8, active_value_field.name, key_to_validate)) {
                         // Handle everything but flags, skip reserved and timestamp.
-                        if (comptime (!std.mem.eql(u8, field.name, "flags") and
-                            !std.mem.eql(u8, field.name, "reserved") and
-                            !std.mem.eql(u8, field.name, "timestamp")))
+                        if (comptime (!std.mem.eql(u8, active_value_field.name, "flags") and
+                            !std.mem.eql(u8, active_value_field.name, "reserved") and
+                            !std.mem.eql(u8, active_value_field.name, "timestamp")))
                         {
                             @field(
-                                @field(out.*, enum_field.name),
-                                field.name,
+                                @field(out.*, object_syntax_tree_field.name),
+                                active_value_field.name,
                             ) = try std.fmt.parseInt(
-                                field.field_type,
-                                value,
+                                active_value_field.field_type,
+                                value_to_validate,
                                 10,
                             );
                         }
 
                         // Handle flags, specific to Account and Transfer fields.
-                        if (comptime std.mem.eql(u8, field.name, "flags") and
-                            !std.mem.eql(u8, enum_field.name, "id"))
+                        if (comptime std.mem.eql(u8, active_value_field.name, "flags") and
+                            !std.mem.eql(u8, object_syntax_tree_field.name, "id"))
                         {
-                            var flags = std.mem.split(u8, value, "|");
-                            var f = std.mem.zeroInit(field.field_type, .{});
-                            while (flags.next()) |flag| {
-                                var flag_no_ws = std.mem.trim(
+                            var flags_to_validate = std.mem.split(u8, value_to_validate, "|");
+                            var validated_flags = std.mem.zeroInit(active_value_field.field_type, .{});
+                            while (flags_to_validate.next()) |flag_to_validate| {
+                                var flag_without_whitespace_to_validate = std.mem.trim(
                                     u8,
-                                    flag,
+                                    flag_to_validate,
                                     std.ascii.spaces[0..],
                                 );
                                 inline for (@typeInfo(
-                                    field.field_type,
-                                ).Struct.fields) |flag_field| {
-                                    if (std.mem.eql(u8, flag_field.name, flag_no_ws)) {
+                                    active_value_field.field_type,
+                                ).Struct.fields) |known_flag_field| {
+                                    if (std.mem.eql(u8, known_flag_field.name, flag_without_whitespace_to_validate)) {
                                         if (comptime !std.mem.eql(
                                             u8,
-                                            flag_field.name,
+                                            known_flag_field.name,
                                             "padding",
                                         )) {
-                                            @field(f, flag_field.name) = true;
+                                            @field(validated_flags, known_flag_field.name) = true;
                                         }
                                     }
                                 }
                             }
-                            @field(@field(out.*, enum_field.name), "flags") = f;
+                            @field(@field(out.*, object_syntax_tree_field.name), "flags") = validated_flags;
                         }
                     }
                 }
@@ -235,28 +244,41 @@ pub const Parse = struct {
     pub fn parse_statement(
         arena: *std.heap.ArenaAllocator,
         input: []const u8,
-    ) !StatementSyntaxTree {
+    ) (error{
+        AccessDenied,
+        BrokenPipe,
+        ConnectionResetByPeer,
+        DiskQuota,
+        FileTooBig,
+        InputOutput,
+        LockViolation,
+        NoSpaceLeft,
+        NotOpenForWriting,
+        OperationAborted,
+        OutOfMemory,
+        SystemResources,
+        Unexpected,
+        WouldBlock,
+    } || Error)!StatementSyntaxTree {
         var args = std.ArrayList(*ObjectSyntaxTree).init(arena.allocator());
 
-        var parse = &Parse{ .input = input };
+        var parse = &Parser{ .input = input };
         parse.eat_whitespace();
         const after_whitespace = parse.offset;
         const operation_identifier = parse.parse_identifier();
 
-        var operation: ?Operation = null;
-        inline for (@typeInfo(Operation).Enum.fields) |operation_field| {
-            if (std.mem.eql(u8, operation_field.name, operation_identifier)) {
-                operation = @intToEnum(Operation, operation_field.value);
+        const operation = operation: {
+            if (std.meta.stringToEnum(Operation, operation_identifier)) |valid_operation| {
+                break :operation valid_operation;
             }
-        }
 
-        if (operation_identifier.len == 0) {
-            operation = .none;
-        }
+            if (operation_identifier.len == 0) {
+                break :operation .none;
+            }
 
-        if (operation == null) {
-            // Set up the offset so in the fail_at function it points
-            // to where after whitespace we actually expected the token.
+            // Set up the offset to after the whitespace so the
+            // fail_at function points at where we actually expected the
+            // token.
             parse.offset = after_whitespace;
             try parse.fail_at(
                 \\Operation must be help, create_accounts, lookup_accounts,
@@ -265,13 +287,13 @@ pub const Parse = struct {
             ,
                 .{operation_identifier},
             );
-            return error.BadOperation;
-        }
+            return Error.BadOperation;
+        };
 
-        const default: ObjectSyntaxTree = switch (operation.?) {
+        const default: ObjectSyntaxTree = switch (operation) {
             .help, .none => {
                 return StatementSyntaxTree{
-                    .operation = operation.?,
+                    .operation = operation,
                     .args = undefined,
                 };
             },
@@ -310,7 +332,7 @@ pub const Parse = struct {
                     "Expected key starting key-value pair. e.g. `id=1`\n",
                     .{},
                 );
-                return error.BadIdentifier;
+                return Error.BadIdentifier;
             }
 
             // Grab =.
@@ -320,7 +342,7 @@ pub const Parse = struct {
                         " pair. e.g. `id=1`.\n",
                     .{id_result},
                 );
-                return error.MissingEqualBetweenKeyValuePair;
+                return Error.MissingEqualBetweenKeyValuePair;
             };
 
             // Grab value.
@@ -331,7 +353,7 @@ pub const Parse = struct {
                     "Expected value after equal sign in key-value pair. e.g. `id=1`.\n",
                     .{},
                 );
-                return error.BadValue;
+                return Error.BadValue;
             }
 
             // Match key to a field in the struct.
@@ -340,7 +362,7 @@ pub const Parse = struct {
                     "'{s}'='{s}' is not a valid pair for {s}.\n",
                     .{ id_result, value_result, @tagName(object) },
                 );
-                return error.BadKeyValuePair;
+                return Error.BadKeyValuePair;
             };
 
             has_fields = true;
@@ -354,7 +376,7 @@ pub const Parse = struct {
         }
 
         return StatementSyntaxTree{
-            .operation = operation.?,
+            .operation = operation,
             .args = args.items,
         };
     }
@@ -395,7 +417,7 @@ pub fn ReplType(comptime MessageBus: type) type {
         fn do_statement(
             repl: *Repl,
             arena: *std.heap.ArenaAllocator,
-            statement: Parse.StatementSyntaxTree,
+            statement: Parser.StatementSyntaxTree,
         ) !void {
             try repl.debug("Running command: {}.\n", .{statement.operation});
             switch (statement.operation) {
@@ -443,41 +465,50 @@ pub fn ReplType(comptime MessageBus: type) type {
             var stdin_buffered_reader = std.io.bufferedReader(stdin.reader());
             var stdin_stream = stdin_buffered_reader.reader();
 
-            var input: []u8 = undefined;
-
-            if (stdin_stream.readUntilDelimiterOrEofAlloc(
+            const input = stdin_stream.readUntilDelimiterOrEofAlloc(
                 arena.allocator(),
                 ';',
                 single_repl_input_max,
-            )) |maybe_bytes| {
-                if (maybe_bytes) |bytes| {
-                    input = bytes;
-                } else {
-                    // EOF.
-                    repl.event_loop_done = true;
-                    try repl.fail("\nExiting.\n", .{});
-                    return;
-                }
-            } else |err| {
+            ) catch |err| {
                 repl.event_loop_done = true;
                 return err;
-            }
+            } orelse {
+                // EOF.
+                repl.event_loop_done = true;
+                try repl.fail("\nExiting.\n", .{});
+                return;
+            };
 
-            var statement = Parse.parse_statement(arena, input) catch |err| {
+            const statement = Parser.parse_statement(arena, input) catch |err| {
                 switch (err) {
                     // These are parsing errors, so the REPL should
                     // not continue to execute this statement but can
                     // still accept new statements.
-                    error.BadIdentifier,
-                    error.BadOperation,
-                    error.BadValue,
-                    error.BadKeyValuePair,
-                    error.MissingEqualBetweenKeyValuePair,
+                    Parser.Error.BadIdentifier,
+                    Parser.Error.BadOperation,
+                    Parser.Error.BadValue,
+                    Parser.Error.BadKeyValuePair,
+                    Parser.Error.MissingEqualBetweenKeyValuePair,
+                    Parser.Error.NoSyntaxMatch,
                     => return,
 
                     // An unexpected error for which we do
                     // want the stacktrace.
-                    else => return err,
+                    error.AccessDenied,
+                    error.BrokenPipe,
+                    error.ConnectionResetByPeer,
+                    error.DiskQuota,
+                    error.FileTooBig,
+                    error.InputOutput,
+                    error.LockViolation,
+                    error.NoSpaceLeft,
+                    error.NotOpenForWriting,
+                    error.OperationAborted,
+                    error.OutOfMemory,
+                    error.SystemResources,
+                    error.Unexpected,
+                    error.WouldBlock,
+                    => return err,
                 }
             };
             try repl.do_statement(
@@ -547,7 +578,7 @@ pub fn ReplType(comptime MessageBus: type) type {
                     // Release allocation after every execution.
                     var execution_arena = std.heap.ArenaAllocator.init(allocator);
                     defer execution_arena.deinit();
-                    var statement = Parse.parse_statement(
+                    var statement = Parser.parse_statement(
                         &execution_arena,
                         statement_string,
                     ) catch |err| {
@@ -556,16 +587,31 @@ pub fn ReplType(comptime MessageBus: type) type {
                             // is not an interactive command, we should
                             // exit immediately. Parsing error info
                             // has already been emitted to stderr.
-                            error.BadIdentifier,
-                            error.BadOperation,
-                            error.BadValue,
-                            error.BadKeyValuePair,
-                            error.MissingEqualBetweenKeyValuePair,
+                            Parser.Error.BadIdentifier,
+                            Parser.Error.BadOperation,
+                            Parser.Error.BadValue,
+                            Parser.Error.BadKeyValuePair,
+                            Parser.Error.MissingEqualBetweenKeyValuePair,
+                            Parser.Error.NoSyntaxMatch,
                             => std.os.exit(1),
 
                             // An unexpected error for which we do
                             // want the stacktrace.
-                            else => return err,
+                            error.AccessDenied,
+                            error.BrokenPipe,
+                            error.ConnectionResetByPeer,
+                            error.DiskQuota,
+                            error.FileTooBig,
+                            error.InputOutput,
+                            error.LockViolation,
+                            error.NoSpaceLeft,
+                            error.NotOpenForWriting,
+                            error.OperationAborted,
+                            error.OutOfMemory,
+                            error.SystemResources,
+                            error.Unexpected,
+                            error.WouldBlock,
+                            => return err,
                         }
                     };
                     try do_statement(repl, &execution_arena, statement);
@@ -590,7 +636,7 @@ pub fn ReplType(comptime MessageBus: type) type {
         fn create(
             repl: *Repl,
             arena: *std.heap.ArenaAllocator,
-            objects: []*Parse.ObjectSyntaxTree,
+            objects: []*Parser.ObjectSyntaxTree,
             comptime T: type,
             comptime object_type: Object,
         ) !void {
@@ -621,7 +667,7 @@ pub fn ReplType(comptime MessageBus: type) type {
         fn lookup(
             repl: *Repl,
             arena: *std.heap.ArenaAllocator,
-            objects: []*Parse.ObjectSyntaxTree,
+            objects: []*Parser.ObjectSyntaxTree,
             object_type: Object,
         ) !void {
             if (objects.len == 0) {

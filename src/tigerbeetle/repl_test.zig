@@ -8,10 +8,10 @@ const tb = vsr.tigerbeetle;
 const MessageBus = vsr.message_bus.MessageBusReplica;
 
 const repl = @import("./repl.zig");
-const Parse = repl.Parse;
+const Parser = repl.Parser;
 const Repl = repl.ReplType(MessageBus);
 
-test "repl.zig: Parse single transfer successfully" {
+test "repl.zig: Parser single transfer successfully" {
     var tests = [_]struct {
         in: []const u8 = "",
         want: tb.Transfer,
@@ -91,19 +91,19 @@ test "repl.zig: Parse single transfer successfully" {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
 
-        var statement = try Parse.parse_statement(
+        var statement = try Parser.parse_statement(
             &arena,
             t.in,
         );
 
         try std.testing.expectEqual(statement.operation, .create_transfers);
         try std.testing.expectEqual(statement.args.len, 1);
-        var arg: Parse.ObjectSyntaxTree = statement.args[0].*;
+        var arg: Parser.ObjectSyntaxTree = statement.args[0].*;
         try std.testing.expectEqual(t.want, arg.transfer);
     }
 }
 
-test "repl.zig: Parse multiple transfers successfully" {
+test "repl.zig: Parser multiple transfers successfully" {
     var tests = [_]struct {
         in: []const u8 = "",
         want: [2]tb.Transfer,
@@ -147,7 +147,7 @@ test "repl.zig: Parse multiple transfers successfully" {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
 
-        var statement = try Parse.parse_statement(
+        var statement = try Parser.parse_statement(
             &arena,
             t.in,
         );
@@ -155,13 +155,13 @@ test "repl.zig: Parse multiple transfers successfully" {
         try std.testing.expectEqual(statement.operation, .create_transfers);
         try std.testing.expectEqual(t.want.len, statement.args.len);
         for (t.want) |want, i| {
-            var arg: Parse.ObjectSyntaxTree = statement.args[i].*;
+            var arg: Parser.ObjectSyntaxTree = statement.args[i].*;
             try std.testing.expectEqual(want, arg.transfer);
         }
     }
 }
 
-test "repl.zig: Parse single account successfully" {
+test "repl.zig: Parser single account successfully" {
     var tests = [_]struct {
         in: []const u8,
         want: tb.Account,
@@ -228,19 +228,19 @@ test "repl.zig: Parse single account successfully" {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
 
-        var statement = try Parse.parse_statement(
+        var statement = try Parser.parse_statement(
             &arena,
             t.in,
         );
 
         try std.testing.expectEqual(statement.operation, .create_accounts);
         try std.testing.expectEqual(statement.args.len, 1);
-        var arg: Parse.ObjectSyntaxTree = statement.args[0].*;
+        var arg: Parser.ObjectSyntaxTree = statement.args[0].*;
         try std.testing.expectEqual(t.want, arg.account);
     }
 }
 
-test "repl.zig: Parse multiple accounts successfully" {
+test "repl.zig: Parser multiple accounts successfully" {
     var tests = [_]struct {
         in: []const u8,
         want: [2]tb.Account,
@@ -280,7 +280,7 @@ test "repl.zig: Parse multiple accounts successfully" {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
 
-        var statement = try Parse.parse_statement(
+        var statement = try Parser.parse_statement(
             &arena,
             t.in,
         );
@@ -288,13 +288,13 @@ test "repl.zig: Parse multiple accounts successfully" {
         try std.testing.expectEqual(statement.operation, .create_accounts);
         try std.testing.expectEqual(t.want.len, statement.args.len);
         for (t.want) |want, i| {
-            var arg: Parse.ObjectSyntaxTree = statement.args[i].*;
+            var arg: Parser.ObjectSyntaxTree = statement.args[i].*;
             try std.testing.expectEqual(want, arg.account);
         }
     }
 }
 
-test "repl.zig: Parse odd but correct formatting" {
+test "repl.zig: Parser odd but correct formatting" {
     var tests = [_]struct {
         in: []const u8 = "",
         want: tb.Transfer,
@@ -405,14 +405,14 @@ test "repl.zig: Parse odd but correct formatting" {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
 
-        var statement = try Parse.parse_statement(
+        var statement = try Parser.parse_statement(
             &arena,
             t.in,
         );
 
         try std.testing.expectEqual(statement.operation, .create_transfers);
         try std.testing.expectEqual(statement.args.len, 1);
-        var arg: Parse.ObjectSyntaxTree = statement.args[0].*;
+        var arg: Parser.ObjectSyntaxTree = statement.args[0].*;
         try std.testing.expectEqual(t.want, arg.transfer);
     }
 }
@@ -472,7 +472,7 @@ test "repl.zig: Handle parsing errors" {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
 
-        var result = Parse.parse_statement(
+        var result = Parser.parse_statement(
             &arena,
             t.in,
         );
