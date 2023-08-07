@@ -260,8 +260,6 @@ pub const Parser = struct {
         Unexpected,
         WouldBlock,
     } || Error)!StatementSyntaxTree {
-        var args = std.ArrayList(*ObjectSyntaxTree).init(arena.allocator());
-
         var parse = &Parser{ .input = input };
         parse.eat_whitespace();
         const after_whitespace = parse.offset;
@@ -305,6 +303,7 @@ pub const Parser = struct {
         var object = default;
 
         var has_fields = false;
+        var args = std.ArrayList(*ObjectSyntaxTree).init(arena.allocator());
         while (parse.offset < parse.input.len) {
             parse.eat_whitespace();
             // Always need to check `i` against length in case we've hit the end.
@@ -393,7 +392,6 @@ pub fn ReplType(comptime MessageBus: type) type {
         debug_logs: bool,
 
         client: *Client,
-        message: ?*MessagePool.Message,
 
         const Repl = @This();
 
@@ -544,7 +542,6 @@ pub fn ReplType(comptime MessageBus: type) type {
 
             var repl = &Repl{
                 .client = undefined,
-                .message = null,
                 .debug_logs = verbose,
                 .request_done = true,
                 .event_loop_done = false,
@@ -697,15 +694,14 @@ pub fn ReplType(comptime MessageBus: type) type {
             operation: StateMachine.Operation,
             payload: []u8,
         ) !void {
-            assert(repl.message == null);
-
             repl.request_done = false;
-            repl.message = repl.client.get_message();
+            var message = repl.client.get_message();
+            defer repl.client.unref(message);
 
             stdx.copy_disjoint(
                 .inexact,
                 u8,
-                repl.message.?.buffer[@sizeOf(vsr.Header)..],
+                message.buffer[@sizeOf(vsr.Header)..],
                 payload,
             );
 
@@ -714,7 +710,7 @@ pub fn ReplType(comptime MessageBus: type) type {
                 @intCast(u128, @ptrToInt(repl)),
                 client_request_callback,
                 operation,
-                repl.message.?,
+                message,
                 payload.len,
             );
         }
@@ -772,8 +768,6 @@ pub fn ReplType(comptime MessageBus: type) type {
 
             defer {
                 repl.request_done = true;
-                repl.client.unref(repl.message.?);
-                repl.message = null;
 
                 if (!repl.interactive) {
                     repl.event_loop_done = true;
