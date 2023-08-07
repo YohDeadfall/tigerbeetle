@@ -222,6 +222,8 @@ pub fn main() !void {
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--keep-tmp")) {
             keep_tmp = true;
+        } else {
+            std.debug.panic("unexpected argument: {s}", .{arg});
         }
     }
 
