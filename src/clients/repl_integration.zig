@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const assert = std.debug.assert;
+
 const TmpDir = @import("./shutil.zig").TmpDir;
 const read_file = @import("./shutil.zig").read_file;
 const shell_wrap = @import("./shutil.zig").shell_wrap;
@@ -218,7 +220,7 @@ pub fn main() !void {
 
     var keep_tmp = false;
     var args = try std.process.argsWithAllocator(arena.allocator());
-    _ = args.next();
+    assert(args.skip());
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--keep-tmp")) {
             keep_tmp = true;
