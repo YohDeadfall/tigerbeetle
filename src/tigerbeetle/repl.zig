@@ -10,14 +10,22 @@ const build_options = @import("vsr_options");
 const vsr = @import("vsr");
 const IO = vsr.io.IO;
 const Storage = vsr.storage.Storage;
-const StateMachine = vsr.state_machine.StateMachineType(Storage, constants.state_machine_config);
+const StateMachine = vsr.state_machine.StateMachineType(
+    Storage,
+    constants.state_machine_config,
+);
 const MessagePool = vsr.message_pool.MessagePool;
 
 const tb = vsr.tigerbeetle;
 
-fn print(comptime fmt: []const u8, args: anytype) !void {
+fn print(comptime format: []const u8, arguments: anytype) !void {
     const stdout = std.io.getStdOut().writer();
-    try stdout.print(fmt, args);
+    try stdout.print(format, arguments);
+}
+
+fn print_error(comptime format: []const u8, arguments: anytype) !void {
+    const stderr = std.io.getStdErr().writer();
+    try stderr.print(format, arguments);
 }
 
 pub const Parser = struct {
@@ -58,14 +66,10 @@ pub const Parser = struct {
         // there is a Zig bug that causes segfaults sometimes
         // when expanding capacity for an array of structs.
         // https://github.com/ziglang/zig/issues/8655
-        args: []*ObjectSyntaxTree,
+        arguments: []*ObjectSyntaxTree,
     };
 
-    fn fail_at(
-        parse: *Parser,
-        comptime fmt: []const u8,
-        args: anytype,
-    ) !void {
+    fn print_current_position(parse: *Parser) !void {
         const target = target: {
             var position_cursor: usize = 0;
             var position_line: usize = 1;
@@ -96,7 +100,6 @@ pub const Parser = struct {
             column -= 1;
         }
         try stderr.print("^ Near here.\n\n", .{});
-        try stderr.print(fmt, args);
     }
 
     fn eat_whitespace(parse: *Parser) void {
@@ -231,9 +234,9 @@ pub const Parser = struct {
     }
 
     // Statement grammar parsed here.
-    // STATEMENT: OPERATION ARGS [;]
+    // STATEMENT: OPERATION ARGUMENTS [;]
     // OPERATION: create_accounts | lookup_accounts | create_transfers | lookup_transfers
-    //      ARGS: ARG [, ARG]
+    //      ARGUMENTS: ARG [, ARG]
     //       ARG: KEY = VALUE
     //       KEY: string
     //     VALUE: string [| VALUE]
@@ -275,10 +278,11 @@ pub const Parser = struct {
             }
 
             // Set up the offset to after the whitespace so the
-            // fail_at function points at where we actually expected the
+            // print_current_position function points at where we actually expected the
             // token.
             parse.offset = after_whitespace;
-            try parse.fail_at(
+            try parse.print_current_position();
+            try print_error(
                 \\Operation must be help, create_accounts, lookup_accounts,
                 \\create_transfers, or lookup_transfers. Got: '{s}'.
                 \\
@@ -292,7 +296,7 @@ pub const Parser = struct {
             .help, .none => {
                 return StatementSyntaxTree{
                     .operation = operation,
-                    .args = undefined,
+                    .arguments = undefined,
                 };
             },
             .create_accounts => .{ .account = std.mem.zeroInit(tb.Account, .{}) },
@@ -303,7 +307,7 @@ pub const Parser = struct {
         var object = default;
 
         var has_fields = false;
-        var args = std.ArrayList(*ObjectSyntaxTree).init(arena.allocator());
+        var arguments = std.ArrayList(*ObjectSyntaxTree).init(arena.allocator());
         while (parse.offset < parse.input.len) {
             parse.eat_whitespace();
             // Always need to check `i` against length in case we've hit the end.
@@ -316,7 +320,7 @@ pub const Parser = struct {
                 parse.offset += 1;
                 var copy = try arena.allocator().create(ObjectSyntaxTree);
                 copy.* = object;
-                try args.append(copy);
+                try arguments.append(copy);
 
                 // Reset object.
                 object = default;
@@ -327,7 +331,8 @@ pub const Parser = struct {
             const id_result = parse.parse_identifier();
 
             if (id_result.len == 0) {
-                try parse.fail_at(
+                try parse.print_current_position();
+                try print_error(
                     "Expected key starting key-value pair. e.g. `id=1`\n",
                     .{},
                 );
@@ -336,7 +341,8 @@ pub const Parser = struct {
 
             // Grab =.
             parse.parse_syntax_char('=') catch {
-                try parse.fail_at(
+                try parse.print_current_position();
+                try print_error(
                     "Expected equal sign after key '{s}' in key-value" ++
                         " pair. e.g. `id=1`.\n",
                     .{id_result},
@@ -348,7 +354,8 @@ pub const Parser = struct {
             const value_result = parse.parse_value();
 
             if (value_result.len == 0) {
-                try parse.fail_at(
+                try parse.print_current_position();
+                try print_error(
                     "Expected value after equal sign in key-value pair. e.g. `id=1`.\n",
                     .{},
                 );
@@ -357,7 +364,8 @@ pub const Parser = struct {
 
             // Match key to a field in the struct.
             match_arg(&object, id_result, value_result) catch {
-                try parse.fail_at(
+                try parse.print_current_position();
+                try print_error(
                     "'{s}'='{s}' is not a valid pair for {s}.\n",
                     .{ id_result, value_result, @tagName(object) },
                 );
@@ -371,12 +379,12 @@ pub const Parser = struct {
         if (has_fields) {
             var copy = try arena.allocator().create(ObjectSyntaxTree);
             copy.* = object;
-            try args.append(copy);
+            try arguments.append(copy);
         }
 
         return StatementSyntaxTree{
             .operation = operation,
-            .args = args.items,
+            .arguments = arguments.items,
         };
     }
 };
@@ -395,19 +403,18 @@ pub fn ReplType(comptime MessageBus: type) type {
 
         const Repl = @This();
 
-        fn fail(repl: *const Repl, comptime fmt: []const u8, args: anytype) !void {
+        fn fail(repl: *const Repl, comptime format: []const u8, arguments: anytype) !void {
             if (!repl.interactive) {
-                const stderr = std.io.getStdErr().writer();
-                try stderr.print(fmt, args);
+                try print_error(format, arguments);
                 std.os.exit(1);
             }
 
-            try print(fmt, args);
+            try print(format, arguments);
         }
 
-        fn debug(repl: *const Repl, comptime fmt: []const u8, args: anytype) !void {
+        fn debug(repl: *const Repl, comptime format: []const u8, arguments: anytype) !void {
             if (repl.debug_logs) {
-                try print("[Debug] " ++ fmt, args);
+                try print("[Debug] " ++ format, arguments);
             }
         }
 
@@ -429,24 +436,24 @@ pub fn ReplType(comptime MessageBus: type) type {
                 },
                 .create_accounts => try repl.create(
                     arena,
-                    statement.args,
+                    statement.arguments,
                     tb.Account,
                     Object.account,
                 ),
                 .lookup_accounts => try repl.lookup(
                     arena,
-                    statement.args,
+                    statement.arguments,
                     Object.account,
                 ),
                 .create_transfers => try repl.create(
                     arena,
-                    statement.args,
+                    statement.arguments,
                     tb.Transfer,
                     Object.transfer,
                 ),
                 .lookup_transfers => try repl.lookup(
                     arena,
-                    statement.args,
+                    statement.arguments,
                     Object.transfer,
                 ),
             }
