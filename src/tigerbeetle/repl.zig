@@ -506,7 +506,7 @@ pub fn ReplType(comptime MessageBus: type) type {
             arena: *std.heap.ArenaAllocator,
             addresses: []std.net.Address,
             cluster_id: u32,
-            statements: ?[]const u8,
+            statements: []const u8,
             verbose: bool,
         ) !void {
             const allocator = arena.allocator();
@@ -517,7 +517,7 @@ pub fn ReplType(comptime MessageBus: type) type {
                 .debug_logs = verbose,
                 .request_done = true,
                 .event_loop_done = false,
-                .interactive = statements == null,
+                .interactive = statements.len == 0,
             };
 
             try repl.debug("Connecting to '{s}'.\n", .{addresses});
@@ -541,8 +541,8 @@ pub fn ReplType(comptime MessageBus: type) type {
             );
             repl.client = &client;
 
-            if (statements) |statements_| {
-                var statements_iterator = std.mem.split(u8, statements_, ";");
+            if (statements.len > 0) {
+                var statements_iterator = std.mem.split(u8, statements, ";");
                 while (statements_iterator.next()) |statement_string| {
                     // Release allocation after every execution.
                     var execution_arena = std.heap.ArenaAllocator.init(allocator);
