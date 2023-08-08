@@ -57,7 +57,7 @@ fn current_commit_post_install_hook(
 
     const public_reference =
         \\  <ItemGroup>
-        \\    <PackageReference Include="tigerbeetle" Version="0.13.3814" />
+        \\    <PackageReference Include="tigerbeetle" Version="0.13.88" />
         \\  </ItemGroup>
     ;
     const old_csproj_contents = try read_file(arena, csproj_filename);
