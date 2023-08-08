@@ -2,6 +2,8 @@ const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 
+const assert = std.debug.assert;
+
 pub const cmd_sep = if (builtin.os.tag == .windows) ";" else "&&";
 
 pub fn exec(

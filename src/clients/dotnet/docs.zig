@@ -1,6 +1,8 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
+const assert = std.debug.assert;
+
 const Docs = @import("../docs_types.zig").Docs;
 const file_or_directory_exists = @import("../shutil.zig").file_or_directory_exists;
 const read_file = @import("../shutil.zig").read_file;
@@ -15,9 +17,25 @@ fn current_commit_pre_install_hook(
     _: []const u8,
 ) !void {
     try std.os.chdir(sample_dir);
+
+    // This gets deleted because there will be a new csproj always
+    // created by following the local build instructions when it does
+    // `dotnet new console` and `dotnet add package tigerbeetle`.
+    run_shell(arena, "rm *.csproj") catch {
+        // Ok if it doesn't exist.
+    };
+
     run_shell(arena, "rm Program.cs") catch {
         // Ok if it doesn't exist.
     };
+}
+
+fn current_commit_post_install_hook(
+    arena: *std.heap.ArenaAllocator,
+    sample_dir: []const u8,
+    _: []const u8,
+) !void {
+    try std.os.chdir(sample_dir);
 
     // Find the .csproj file so we can swap out the public package
     // with our local build, if the .csproj file exists.
@@ -27,29 +45,48 @@ fn current_commit_pre_install_hook(
     var walker = try dir.walk(arena.allocator());
     defer walker.deinit();
 
-    while (try walker.next()) |entry| {
-        if (std.mem.endsWith(u8, entry.path, ".csproj")) {
-            const csproj_contents = try std.mem.replaceOwned(arena.allocator(), try read_file(arena, entry.path),
-                \\  <ItemGroup>
-                \\    <PackageReference Include="tigerbeetle" Version="0.0.1.3814" />
-                \\  </ItemGroup>
-            ,
-                \\  <ItemGroup>
-                \\    <ProjectReference Include="../../TigerBeetle/TigerBeetle.csproj" />
-                \\  </ItemGroup>
-            );
-
-            const csproj_file = try std.fs.cwd().openFile(
-                entry.path,
-                .{ .mode = .write_only },
-            );
-            defer csproj_file.close();
-
-            try csproj_file.writeAll(csproj_contents);
-            try csproj_file.setEndPos(csproj_contents.len);
+    const csproj_filename = blk: {
+        while (try walker.next()) |entry| {
+            if (std.mem.endsWith(u8, entry.path, ".csproj")) {
+                break :blk entry.path;
+            }
         }
-    }
-    return try std.mem.replaceOwned();
+
+        return error.CSProjFileNotFound;
+    };
+
+    const public_reference =
+        \\  <ItemGroup>
+        \\    <PackageReference Include="tigerbeetle" Version="0.13.3814" />
+        \\  </ItemGroup>
+    ;
+    const old_csproj_contents = try read_file(arena, csproj_filename);
+    std.debug.print("OLD: '{s}'", .{old_csproj_contents});
+    assert(std.mem.containsAtLeast(u8, old_csproj_contents, 1, public_reference));
+
+    const local_reference =
+        \\  <ItemGroup>
+        \\    <ProjectReference Include="../../TigerBeetle/TigerBeetle.csproj" />
+        \\  </ItemGroup>
+    ;
+    const csproj_contents = try std.mem.replaceOwned(
+        u8,
+        arena.allocator(),
+        old_csproj_contents,
+        public_reference,
+        local_reference,
+    );
+
+    assert(std.mem.containsAtLeast(u8, csproj_contents, 1, local_reference));
+
+    const csproj_file = try std.fs.cwd().openFile(
+        csproj_filename,
+        .{ .mode = .write_only },
+    );
+    defer csproj_file.close();
+
+    try csproj_file.writeAll(csproj_contents);
+    try csproj_file.setEndPos(csproj_contents.len);
 }
 
 pub const DotnetDocs = Docs{
@@ -93,7 +130,7 @@ pub const DotnetDocs = Docs{
     ,
 
     .current_commit_pre_install_hook = current_commit_pre_install_hook,
-    .current_commit_post_install_hook = null,
+    .current_commit_post_install_hook = current_commit_post_install_hook,
 
     .install_commands = 
     \\dotnet new console

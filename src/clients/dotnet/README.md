@@ -445,3 +445,4 @@ $ dotnet clean --verbosity minimal
 $ dotnet build
 $ if ($env:TEST -eq 'true') { dotnet test } else { echo "Skipping client unit test" }
 ```
+
