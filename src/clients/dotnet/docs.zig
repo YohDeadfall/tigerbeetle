@@ -2,6 +2,8 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 const Docs = @import("../docs_types.zig").Docs;
+const file_or_directory_exists = @import("../shutil.zig").file_or_directory_exists;
+const read_file = @import("../shutil.zig").read_file;
 const run = @import("../shutil.zig").run;
 const run_shell = @import("../shutil.zig").run_shell;
 const script_filename = @import("../shutil.zig").script_filename;
@@ -13,12 +15,41 @@ fn current_commit_pre_install_hook(
     _: []const u8,
 ) !void {
     try std.os.chdir(sample_dir);
-    run_shell(arena, "rm *.csproj") catch {
-        // Ok if it doesn't exist.
-    };
     run_shell(arena, "rm Program.cs") catch {
         // Ok if it doesn't exist.
     };
+
+    // Find the .csproj file so we can swap out the public package
+    // with our local build, if the .csproj file exists.
+    var dir = try std.fs.cwd().openIterableDir(".", .{});
+    defer dir.close();
+
+    var walker = try dir.walk(arena.allocator());
+    defer walker.deinit();
+
+    while (try walker.next()) |entry| {
+        if (std.mem.endsWith(u8, entry.path, ".csproj")) {
+            const csproj_contents = try std.mem.replaceOwned(arena.allocator(), try read_file(arena, entry.path),
+                \\  <ItemGroup>
+                \\    <PackageReference Include="tigerbeetle" Version="0.0.1.3814" />
+                \\  </ItemGroup>
+            ,
+                \\  <ItemGroup>
+                \\    <ProjectReference Include="../../TigerBeetle/TigerBeetle.csproj" />
+                \\  </ItemGroup>
+            );
+
+            const csproj_file = try std.fs.cwd().openFile(
+                entry.path,
+                .{ .mode = .write_only },
+            );
+            defer csproj_file.close();
+
+            try csproj_file.writeAll(csproj_contents);
+            try csproj_file.setEndPos(csproj_contents.len);
+        }
+    }
+    return try std.mem.replaceOwned();
 }
 
 pub const DotnetDocs = Docs{
