@@ -33,7 +33,7 @@ fn current_commit_pre_install_hook(
 fn current_commit_post_install_hook(
     arena: *std.heap.ArenaAllocator,
     sample_dir: []const u8,
-    _: []const u8,
+    root: []const u8,
 ) !void {
     try std.os.chdir(sample_dir);
 
@@ -61,14 +61,16 @@ fn current_commit_post_install_hook(
         \\  </ItemGroup>
     ;
     const old_csproj_contents = try read_file(arena, csproj_filename);
-    std.debug.print("OLD: '{s}'", .{old_csproj_contents});
     assert(std.mem.containsAtLeast(u8, old_csproj_contents, 1, public_reference));
 
-    const local_reference =
+    const local_reference = try std.fmt.allocPrint(
+        arena.allocator(),
         \\  <ItemGroup>
-        \\    <ProjectReference Include="../../TigerBeetle/TigerBeetle.csproj" />
+        \\    <ProjectReference Include="{s}/src/clients/dotnet/TigerBeetle/TigerBeetle.csproj" />
         \\  </ItemGroup>
-    ;
+    ,
+        .{root},
+    );
     const csproj_contents = try std.mem.replaceOwned(
         u8,
         arena.allocator(),
