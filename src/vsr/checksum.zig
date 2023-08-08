@@ -214,8 +214,8 @@ test "Aegis stability" {
         for (cases[0..i]) |case_b| assert(case_a != case_b);
     }
 
-    // Finally, checksum everything once again. If the number here changes, we broke compatibility
-    // in a bad way!
+    // Hash me, baby, one more time! If this final hash changes, we broke compatibility in a major
+    // way.
     comptime assert(builtin.target.cpu.arch.endian() == .Little);
     const hash = checksum(std.mem.sliceAsBytes(&cases));
     try testing.expectEqual(hash, 0x82dcaacf4875b279446825b6830d1263);
