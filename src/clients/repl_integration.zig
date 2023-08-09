@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 
 const assert = std.debug.assert;
 
+const flags = @import("../flags.zig");
+
 const TmpDir = @import("./shutil.zig").TmpDir;
 const read_file = @import("./shutil.zig").read_file;
 const shell_wrap = @import("./shutil.zig").shell_wrap;
@@ -214,28 +216,25 @@ fn test_basic_accounts_and_transfers(
     try expect_json_file_equals(arena, expected_transfer, tmp_dir, "out_transfer");
 }
 
+const CliArgs = struct {
+    keep_tmp: bool = false,
+};
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
-    var keep_tmp = false;
     var args = try std.process.argsWithAllocator(arena.allocator());
+    defer args.deinit();
+
     assert(args.skip());
-    while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--keep-tmp")) {
-            keep_tmp = true;
-        } else {
-            std.debug.panic("unexpected argument: {s}", .{arg});
-        }
-    }
+
+    const cli_args = flags.parse_flags(&args, CliArgs);
 
     var t = try TmpDir.init(&arena);
-
-    defer {
-        if (!keep_tmp) {
-            t.deinit();
-        }
-    }
+    defer if (!cli_args.keep_tmp) {
+        t.deinit();
+    };
 
     const tb_binary = try binary_filename(&arena, &[_][]const u8{"tigerbeetle"});
 

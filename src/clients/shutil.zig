@@ -2,7 +2,6 @@
 
 const builtin = @import("builtin");
 const std = @import("std");
-const assert = std.debug.assert;
 
 const assert = std.debug.assert;
 

@@ -988,6 +988,7 @@ fn repl_integration(
 ) void {
     const repl_integration_build = b.step("repl_integration", "Build cli client integration test script.");
     const binary = b.addExecutable("repl_integration", "src/clients/repl_integration.zig");
+    binary.setMainPkgPath("src");
     binary.setBuildMode(mode);
     binary.setTarget(target);
     repl_integration_build.dependOn(&binary.step);
