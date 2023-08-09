@@ -97,9 +97,7 @@ test "repl.zig: Parser single transfer successfully" {
         );
 
         try std.testing.expectEqual(statement.operation, .create_transfers);
-        try std.testing.expectEqual(statement.arguments.len, 1);
-        var arg: Parser.ObjectSyntaxTree = statement.arguments[0].*;
-        try std.testing.expectEqual(t.want, arg.transfer);
+        try std.testing.expectEqualSlices(u8, statement.arguments, std.mem.asBytes(&t.want));
     }
 }
 
@@ -153,11 +151,7 @@ test "repl.zig: Parser multiple transfers successfully" {
         );
 
         try std.testing.expectEqual(statement.operation, .create_transfers);
-        try std.testing.expectEqual(t.want.len, statement.arguments.len);
-        for (t.want) |want, i| {
-            var arg: Parser.ObjectSyntaxTree = statement.arguments[i].*;
-            try std.testing.expectEqual(want, arg.transfer);
-        }
+        try std.testing.expectEqualSlices(u8, statement.arguments, std.mem.sliceAsBytes(&t.want));
     }
 }
 
@@ -234,9 +228,7 @@ test "repl.zig: Parser single account successfully" {
         );
 
         try std.testing.expectEqual(statement.operation, .create_accounts);
-        try std.testing.expectEqual(statement.arguments.len, 1);
-        var arg: Parser.ObjectSyntaxTree = statement.arguments[0].*;
-        try std.testing.expectEqual(t.want, arg.account);
+        try std.testing.expectEqualSlices(u8, statement.arguments, std.mem.asBytes(&t.want));
     }
 }
 
@@ -286,11 +278,7 @@ test "repl.zig: Parser multiple accounts successfully" {
         );
 
         try std.testing.expectEqual(statement.operation, .create_accounts);
-        try std.testing.expectEqual(t.want.len, statement.arguments.len);
-        for (t.want) |want, i| {
-            var arg: Parser.ObjectSyntaxTree = statement.arguments[i].*;
-            try std.testing.expectEqual(want, arg.account);
-        }
+        try std.testing.expectEqualSlices(u8, statement.arguments, std.mem.sliceAsBytes(&t.want));
     }
 }
 
@@ -411,9 +399,7 @@ test "repl.zig: Parser odd but correct formatting" {
         );
 
         try std.testing.expectEqual(statement.operation, .create_transfers);
-        try std.testing.expectEqual(statement.arguments.len, 1);
-        var arg: Parser.ObjectSyntaxTree = statement.arguments[0].*;
-        try std.testing.expectEqual(t.want, arg.transfer);
+        try std.testing.expectEqualSlices(u8, statement.arguments, std.mem.asBytes(&t.want));
     }
 }
 
