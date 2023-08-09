@@ -198,7 +198,8 @@ pub const Parser = struct {
                             !std.mem.eql(u8, object_syntax_tree_field.name, "id"))
                         {
                             var flags_to_validate = std.mem.split(u8, value_to_validate, "|");
-                            var validated_flags = std.mem.zeroInit(active_value_field.field_type, .{});
+                            var validated_flags =
+                                std.mem.zeroInit(active_value_field.field_type, .{});
                             while (flags_to_validate.next()) |flag_to_validate| {
                                 var flag_without_whitespace_to_validate = std.mem.trim(
                                     u8,
@@ -208,7 +209,11 @@ pub const Parser = struct {
                                 inline for (@typeInfo(
                                     active_value_field.field_type,
                                 ).Struct.fields) |known_flag_field| {
-                                    if (std.mem.eql(u8, known_flag_field.name, flag_without_whitespace_to_validate)) {
+                                    if (std.mem.eql(
+                                        u8,
+                                        known_flag_field.name,
+                                        flag_without_whitespace_to_validate,
+                                    )) {
                                         if (comptime !std.mem.eql(
                                             u8,
                                             known_flag_field.name,
@@ -219,7 +224,10 @@ pub const Parser = struct {
                                     }
                                 }
                             }
-                            @field(@field(out.*, object_syntax_tree_field.name), "flags") = validated_flags;
+                            @field(
+                                @field(out.*, object_syntax_tree_field.name),
+                                "flags",
+                            ) = validated_flags;
                         }
                     }
                 }
