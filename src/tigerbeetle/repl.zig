@@ -60,26 +60,22 @@ pub const Parser = struct {
         id: LookupSyntaxTree,
     };
 
-    pub const StatementSyntaxTree = struct {
+    pub const Statement = struct {
         operation: Operation,
-        // Must be an array of pointers to structs because
-        // there is a Zig bug that causes segfaults sometimes
-        // when expanding capacity for an array of structs.
-        // https://github.com/ziglang/zig/issues/8655
-        arguments: []*ObjectSyntaxTree,
+        arguments: []const u8,
     };
 
-    fn print_current_position(parse: *Parser) !void {
+    fn print_current_position(parser: *Parser) !void {
         const target = target: {
             var position_cursor: usize = 0;
             var position_line: usize = 1;
-            var lines = std.mem.split(u8, parse.input, "\n");
+            var lines = std.mem.split(u8, parser.input, "\n");
             while (lines.next()) |line| {
-                if (position_cursor + line.len >= parse.offset) {
+                if (position_cursor + line.len >= parser.offset) {
                     break :target .{
                         .line = line,
                         .position_line = position_line,
-                        .position_column = parse.offset - position_cursor,
+                        .position_column = parser.offset - position_cursor,
                     };
                 } else {
                     position_line += 1;
@@ -102,74 +98,72 @@ pub const Parser = struct {
         try stderr.print("^ Near here.\n\n", .{});
     }
 
-    fn eat_whitespace(parse: *Parser) void {
-        while (parse.offset < parse.input.len and
-            std.ascii.isSpace(parse.input[parse.offset]))
+    fn eat_whitespace(parser: *Parser) void {
+        while (parser.offset < parser.input.len and
+            std.ascii.isSpace(parser.input[parser.offset]))
         {
-            parse.offset += 1;
+            parser.offset += 1;
         }
     }
 
-    fn parse_identifier(parse: *Parser) []const u8 {
-        parse.eat_whitespace();
-        const after_whitespace = parse.offset;
+    fn parse_identifier(parser: *Parser) []const u8 {
+        parser.eat_whitespace();
+        const after_whitespace = parser.offset;
 
-        while (parse.offset < parse.input.len and
-            (std.ascii.isAlpha(parse.input[parse.offset]) or
-            parse.input[parse.offset] == '_'))
+        while (parser.offset < parser.input.len and
+            (std.ascii.isAlpha(parser.input[parser.offset]) or
+            parser.input[parser.offset] == '_'))
         {
-            parse.offset += 1;
+            parser.offset += 1;
         }
 
-        return parse.input[after_whitespace..parse.offset];
+        return parser.input[after_whitespace..parser.offset];
     }
 
-    fn parse_syntax_char(parse: *Parser, syntax_char: u8) !void {
-        parse.eat_whitespace();
+    fn parse_syntax_char(parser: *Parser, syntax_char: u8) !void {
+        parser.eat_whitespace();
 
-        if (parse.offset < parse.input.len and
-            parse.input[parse.offset] == syntax_char)
+        if (parser.offset < parser.input.len and
+            parser.input[parser.offset] == syntax_char)
         {
-            parse.offset += 1;
+            parser.offset += 1;
             return;
         }
 
         return Error.NoSyntaxMatch;
     }
 
-    fn parse_value(
-        parse: *Parser,
-    ) []const u8 {
-        parse.eat_whitespace();
-        const after_whitespace = parse.offset;
+    fn parse_value(parser: *Parser) []const u8 {
+        parser.eat_whitespace();
+        const after_whitespace = parser.offset;
 
-        while (parse.offset < parse.input.len) {
-            const c = parse.input[parse.offset];
+        while (parser.offset < parser.input.len) {
+            const c = parser.input[parser.offset];
             if (!(std.ascii.isAlNum(c) or c == '_' or c == '|')) {
                 // Allows flag fields to have whitespace before a '|'.
-                var copy = Parser{ .input = parse.input, .offset = parse.offset };
+                var copy = Parser{ .input = parser.input, .offset = parser.offset };
                 copy.eat_whitespace();
-                if (copy.offset < parse.input.len and parse.input[copy.offset] == '|') {
-                    parse.offset = copy.offset;
+                if (copy.offset < parser.input.len and parser.input[copy.offset] == '|') {
+                    parser.offset = copy.offset;
                     continue;
                 }
 
                 // Allow flag fields to have whitespace after a '|'.
-                if (copy.offset < parse.input.len and
-                    parse.offset > 0 and
-                    parse.input[parse.offset - 1] == '|')
+                if (copy.offset < parser.input.len and
+                    parser.offset > 0 and
+                    parser.input[parser.offset - 1] == '|')
                 {
-                    parse.offset = copy.offset;
+                    parser.offset = copy.offset;
                     continue;
                 }
 
                 break;
             }
 
-            parse.offset += 1;
+            parser.offset += 1;
         }
 
-        return parse.input[after_whitespace..parse.offset];
+        return parser.input[after_whitespace..parser.offset];
     }
 
     fn match_arg(
@@ -233,6 +227,102 @@ pub const Parser = struct {
         }
     }
 
+    fn parse_arguments(
+        parser: *Parser,
+        operation: Operation,
+        arguments: *std.ArrayList(u8),
+    ) !void {
+        const default: ObjectSyntaxTree = switch (operation) {
+            .help, .none => return,
+            .create_accounts => .{ .account = std.mem.zeroInit(tb.Account, .{}) },
+            .create_transfers => .{ .transfer = std.mem.zeroInit(tb.Transfer, .{}) },
+            .lookup_accounts => .{ .id = .{ .id = 0 } },
+            .lookup_transfers => .{ .id = .{ .id = 0 } },
+        };
+        var object = default;
+
+        var has_fields = false;
+        while (parser.offset < parser.input.len) {
+            parser.eat_whitespace();
+            // Always need to check `i` against length in case we've hit the end.
+            if (parser.offset >= parser.input.len or parser.input[parser.offset] == ';') {
+                break;
+            }
+
+            // Expect comma separating objects.
+            if (parser.offset < parser.input.len and parser.input[parser.offset] == ',') {
+                parser.offset += 1;
+                inline for (@typeInfo(ObjectSyntaxTree).Union.fields) |object_tree_field| {
+                    if (std.mem.eql(u8, @tagName(object), object_tree_field.name)) {
+                        const unwrapped_field = @field(object, object_tree_field.name);
+                        try arguments.appendSlice(std.mem.asBytes(&unwrapped_field));
+                    }
+                }
+
+                // Reset object.
+                object = default;
+                has_fields = false;
+            }
+
+            // Grab key.
+            const id_result = parser.parse_identifier();
+
+            if (id_result.len == 0) {
+                try parser.print_current_position();
+                try print_error(
+                    "Expected key starting key-value pair. e.g. `id=1`\n",
+                    .{},
+                );
+                return Error.BadIdentifier;
+            }
+
+            // Grab =.
+            parser.parse_syntax_char('=') catch {
+                try parser.print_current_position();
+                try print_error(
+                    "Expected equal sign after key '{s}' in key-value" ++
+                        " pair. e.g. `id=1`.\n",
+                    .{id_result},
+                );
+                return Error.MissingEqualBetweenKeyValuePair;
+            };
+
+            // Grab value.
+            const value_result = parser.parse_value();
+
+            if (value_result.len == 0) {
+                try parser.print_current_position();
+                try print_error(
+                    "Expected value after equal sign in key-value pair. e.g. `id=1`.\n",
+                    .{},
+                );
+                return Error.BadValue;
+            }
+
+            // Match key to a field in the struct.
+            match_arg(&object, id_result, value_result) catch {
+                try parser.print_current_position();
+                try print_error(
+                    "'{s}'='{s}' is not a valid pair for {s}.\n",
+                    .{ id_result, value_result, @tagName(object) },
+                );
+                return Error.BadKeyValuePair;
+            };
+
+            has_fields = true;
+        }
+
+        // Add final object.
+        if (has_fields) {
+            inline for (@typeInfo(ObjectSyntaxTree).Union.fields) |object_tree_field| {
+                if (std.mem.eql(u8, @tagName(object), object_tree_field.name)) {
+                    const unwrapped_field = @field(object, object_tree_field.name);
+                    try arguments.appendSlice(std.mem.asBytes(&unwrapped_field));
+                }
+            }
+        }
+    }
+
     // Statement grammar parsed here.
     // STATEMENT: OPERATION ARGUMENTS [;]
     // OPERATION: create_accounts | lookup_accounts | create_transfers | lookup_transfers
@@ -262,11 +352,11 @@ pub const Parser = struct {
         SystemResources,
         Unexpected,
         WouldBlock,
-    } || Error)!StatementSyntaxTree {
-        var parse = &Parser{ .input = input };
-        parse.eat_whitespace();
-        const after_whitespace = parse.offset;
-        const operation_identifier = parse.parse_identifier();
+    } || Error)!Statement {
+        var parser = &Parser{ .input = input };
+        parser.eat_whitespace();
+        const after_whitespace = parser.offset;
+        const operation_identifier = parser.parse_identifier();
 
         const operation = operation: {
             if (std.meta.stringToEnum(Operation, operation_identifier)) |valid_operation| {
@@ -280,8 +370,8 @@ pub const Parser = struct {
             // Set up the offset to after the whitespace so the
             // print_current_position function points at where we actually expected the
             // token.
-            parse.offset = after_whitespace;
-            try parse.print_current_position();
+            parser.offset = after_whitespace;
+            try parser.print_current_position();
             try print_error(
                 \\Operation must be help, create_accounts, lookup_accounts,
                 \\create_transfers, or lookup_transfers. Got: '{s}'.
@@ -292,97 +382,10 @@ pub const Parser = struct {
             return Error.BadOperation;
         };
 
-        const default: ObjectSyntaxTree = switch (operation) {
-            .help, .none => {
-                return StatementSyntaxTree{
-                    .operation = operation,
-                    .arguments = undefined,
-                };
-            },
-            .create_accounts => .{ .account = std.mem.zeroInit(tb.Account, .{}) },
-            .create_transfers => .{ .transfer = std.mem.zeroInit(tb.Transfer, .{}) },
-            .lookup_accounts => .{ .id = .{ .id = 0 } },
-            .lookup_transfers => .{ .id = .{ .id = 0 } },
-        };
-        var object = default;
+        var arguments = std.ArrayList(u8).init(arena.allocator());
+        try parser.parse_arguments(operation, &arguments);
 
-        var has_fields = false;
-        var arguments = std.ArrayList(*ObjectSyntaxTree).init(arena.allocator());
-        while (parse.offset < parse.input.len) {
-            parse.eat_whitespace();
-            // Always need to check `i` against length in case we've hit the end.
-            if (parse.offset >= parse.input.len or parse.input[parse.offset] == ';') {
-                break;
-            }
-
-            // Expect comma separating objects.
-            if (parse.offset < parse.input.len and parse.input[parse.offset] == ',') {
-                parse.offset += 1;
-                var copy = try arena.allocator().create(ObjectSyntaxTree);
-                copy.* = object;
-                try arguments.append(copy);
-
-                // Reset object.
-                object = default;
-                has_fields = false;
-            }
-
-            // Grab key.
-            const id_result = parse.parse_identifier();
-
-            if (id_result.len == 0) {
-                try parse.print_current_position();
-                try print_error(
-                    "Expected key starting key-value pair. e.g. `id=1`\n",
-                    .{},
-                );
-                return Error.BadIdentifier;
-            }
-
-            // Grab =.
-            parse.parse_syntax_char('=') catch {
-                try parse.print_current_position();
-                try print_error(
-                    "Expected equal sign after key '{s}' in key-value" ++
-                        " pair. e.g. `id=1`.\n",
-                    .{id_result},
-                );
-                return Error.MissingEqualBetweenKeyValuePair;
-            };
-
-            // Grab value.
-            const value_result = parse.parse_value();
-
-            if (value_result.len == 0) {
-                try parse.print_current_position();
-                try print_error(
-                    "Expected value after equal sign in key-value pair. e.g. `id=1`.\n",
-                    .{},
-                );
-                return Error.BadValue;
-            }
-
-            // Match key to a field in the struct.
-            match_arg(&object, id_result, value_result) catch {
-                try parse.print_current_position();
-                try print_error(
-                    "'{s}'='{s}' is not a valid pair for {s}.\n",
-                    .{ id_result, value_result, @tagName(object) },
-                );
-                return Error.BadKeyValuePair;
-            };
-
-            has_fields = true;
-        }
-
-        // Add final object.
-        if (has_fields) {
-            var copy = try arena.allocator().create(ObjectSyntaxTree);
-            copy.* = object;
-            try arguments.append(copy);
-        }
-
-        return StatementSyntaxTree{
+        return Statement{
             .operation = operation,
             .arguments = arguments.items,
         };
@@ -421,8 +424,7 @@ pub fn ReplType(comptime MessageBus: type) type {
         const Object = enum { account, transfer };
         fn do_statement(
             repl: *Repl,
-            arena: *std.heap.ArenaAllocator,
-            statement: Parser.StatementSyntaxTree,
+            statement: Parser.Statement,
         ) !void {
             try repl.debug("Running command: {}.\n", .{statement.operation});
             switch (statement.operation) {
@@ -434,28 +436,17 @@ pub fn ReplType(comptime MessageBus: type) type {
                     try display_help();
                     std.os.exit(0);
                 },
-                .create_accounts => try repl.create(
-                    arena,
-                    statement.arguments,
-                    tb.Account,
-                    Object.account,
-                ),
-                .lookup_accounts => try repl.lookup(
-                    arena,
-                    statement.arguments,
-                    Object.account,
-                ),
-                .create_transfers => try repl.create(
-                    arena,
-                    statement.arguments,
-                    tb.Transfer,
-                    Object.transfer,
-                ),
-                .lookup_transfers => try repl.lookup(
-                    arena,
-                    statement.arguments,
-                    Object.transfer,
-                ),
+
+                .create_accounts,
+                .create_transfers,
+                .lookup_accounts,
+                .lookup_transfers,
+                => |operation| {
+                    const state_machine_operation =
+                        std.meta.stringToEnum(StateMachine.Operation, @tagName(operation));
+                    assert(state_machine_operation != null);
+                    try repl.send(state_machine_operation.?, statement.arguments);
+                },
             }
         }
 
@@ -519,10 +510,7 @@ pub fn ReplType(comptime MessageBus: type) type {
                     => return err,
                 }
             };
-            try repl.do_statement(
-                arena,
-                statement,
-            );
+            try repl.do_statement(statement);
         }
 
         fn display_help() !void {
@@ -624,7 +612,7 @@ pub fn ReplType(comptime MessageBus: type) type {
                             => return err,
                         }
                     };
-                    try do_statement(repl, &execution_arena, statement);
+                    try repl.do_statement(statement);
                 }
             } else {
                 try display_help();
@@ -643,71 +631,33 @@ pub fn ReplType(comptime MessageBus: type) type {
             }
         }
 
-        fn create(
-            repl: *Repl,
-            arena: *std.heap.ArenaAllocator,
-            objects: []*Parser.ObjectSyntaxTree,
-            comptime T: type,
-            comptime object_type: Object,
-        ) !void {
-            if (objects.len == 0) {
-                try repl.fail("No {s}s to create.\n", .{@tagName(object_type)});
-                return;
-            }
-
-            var allocator = arena.allocator();
-            var batch = try std.ArrayList(T).initCapacity(allocator, objects.len);
-
-            for (objects) |object| {
-                batch.appendAssumeCapacity(@field(object, @tagName(object_type)));
-            }
-
-            assert(batch.items.len == objects.len);
-
-            // Submit batch.
-            try repl.send(
-                switch (object_type) {
-                    .account => .create_accounts,
-                    .transfer => .create_transfers,
-                },
-                std.mem.sliceAsBytes(batch.items),
-            );
-        }
-
-        fn lookup(
-            repl: *Repl,
-            arena: *std.heap.ArenaAllocator,
-            objects: []*Parser.ObjectSyntaxTree,
-            object_type: Object,
-        ) !void {
-            if (objects.len == 0) {
-                try repl.fail("No {s} to look up.\n", .{@tagName(object_type)});
-                return;
-            }
-
-            var allocator = arena.allocator();
-            var ids = try std.ArrayList(u128).initCapacity(allocator, objects.len);
-
-            for (objects) |object| {
-                try ids.append(object.id.id);
-            }
-
-            // Submit batch.
-            try repl.send(
-                switch (object_type) {
-                    .account => .lookup_accounts,
-                    .transfer => .lookup_transfers,
-                },
-                std.mem.sliceAsBytes(ids.items),
-            );
-        }
-
         fn send(
             repl: *Repl,
             operation: StateMachine.Operation,
-            payload: []u8,
+            arguments: []const u8,
         ) !void {
-            repl.request_done = false;
+            const operation_type =
+                if (operation == .create_accounts or
+                operation == .create_transfers)
+                "create"
+            else
+                "lookup";
+
+            const object_type =
+                if (operation == .create_accounts or
+                operation == .lookup_accounts)
+                "accounts"
+            else
+                "transfers";
+
+            if (arguments.len == 0) {
+                try repl.fail(
+                    "No {s} to {s}.\n",
+                    .{ object_type, operation_type },
+                );
+                return;
+            }
+
             var message = repl.client.get_message();
             defer repl.client.unref(message);
 
@@ -715,16 +665,17 @@ pub fn ReplType(comptime MessageBus: type) type {
                 .inexact,
                 u8,
                 message.buffer[@sizeOf(vsr.Header)..],
-                payload,
+                arguments,
             );
 
+            repl.request_done = false;
             try repl.debug("Sending command: {}.\n", .{operation});
             repl.client.request(
                 @intCast(u128, @ptrToInt(repl)),
                 client_request_callback,
                 operation,
                 message,
-                payload.len,
+                arguments.len,
             );
         }
 
