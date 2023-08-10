@@ -1,6 +1,5 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const assert = std.debug.assert;
 
 const assert = std.debug.assert;
 
@@ -216,15 +215,4 @@ pub fn write_shell_newlines_into_single_line(
 
     // The above commands all end with ` {cmd_sep} `
     try into.appendSlice("echo ok");
-}
-
-pub fn read_file(arena: *std.heap.ArenaAllocator, file_name: []const u8) ![]const u8 {
-    const file = try std.fs.cwd().openFile(file_name, .{});
-    defer file.close();
-
-    const file_size = try file.getEndPos();
-    var contents = try arena.allocator().alloc(u8, file_size);
-    const n = try file.read(contents);
-    assert(n == file_size);
-    return contents;
 }

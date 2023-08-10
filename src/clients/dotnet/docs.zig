@@ -5,30 +5,10 @@ const assert = std.debug.assert;
 
 const Docs = @import("../docs_types.zig").Docs;
 const file_or_directory_exists = @import("../shutil.zig").file_or_directory_exists;
-const read_file = @import("../shutil.zig").read_file;
 const run = @import("../shutil.zig").run;
 const run_shell = @import("../shutil.zig").run_shell;
 const script_filename = @import("../shutil.zig").script_filename;
 const write_shell_newlines_into_single_line = @import("../shutil.zig").write_shell_newlines_into_single_line;
-
-fn current_commit_pre_install_hook(
-    arena: *std.heap.ArenaAllocator,
-    sample_dir: []const u8,
-    _: []const u8,
-) !void {
-    try std.os.chdir(sample_dir);
-
-    // This gets deleted because there will be a new csproj always
-    // created by following the local build instructions when it does
-    // `dotnet new console` and `dotnet add package tigerbeetle`.
-    run_shell(arena, "rm *.csproj") catch {
-        // Ok if it doesn't exist.
-    };
-
-    run_shell(arena, "rm Program.cs") catch {
-        // Ok if it doesn't exist.
-    };
-}
 
 fn current_commit_post_install_hook(
     arena: *std.heap.ArenaAllocator,
@@ -88,7 +68,7 @@ pub const DotnetDocs = Docs{
     \\Console.WriteLine("SUCCESS");
     ,
 
-    .current_commit_pre_install_hook = current_commit_pre_install_hook,
+    .current_commit_pre_install_hook = null,
     .current_commit_post_install_hook = current_commit_post_install_hook,
 
     .install_commands = 
