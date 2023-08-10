@@ -4,11 +4,22 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const Docs = @import("../docs_types.zig").Docs;
-const file_or_directory_exists = @import("../shutil.zig").file_or_directory_exists;
-const run = @import("../shutil.zig").run;
 const run_shell = @import("../shutil.zig").run_shell;
-const script_filename = @import("../shutil.zig").script_filename;
-const write_shell_newlines_into_single_line = @import("../shutil.zig").write_shell_newlines_into_single_line;
+
+fn current_commit_pre_install_hook(
+    _: *std.heap.ArenaAllocator,
+    _: []const u8,
+    _: []const u8,
+) !void {
+    // When running integration tests, the integration tests already
+    // have a .csproj file. But this will jostle with the .csproj
+    // created during the prepare_directory step when we call `dotnet
+    // new console`. So we'll get rid of the existing .csproj file
+    // before we call `dotnet new`.
+    //run_shell(arena, "rm *.csproj") catch {
+    // Ok if there is no csproj (the client_docs scenario).
+    //};
+}
 
 fn current_commit_post_install_hook(
     arena: *std.heap.ArenaAllocator,
@@ -68,7 +79,7 @@ pub const DotnetDocs = Docs{
     \\Console.WriteLine("SUCCESS");
     ,
 
-    .current_commit_pre_install_hook = null,
+    .current_commit_pre_install_hook = current_commit_pre_install_hook,
     .current_commit_post_install_hook = current_commit_post_install_hook,
 
     .install_commands = 

@@ -16,7 +16,6 @@ namespace TigerBeetle
 
         public Client(uint clusterID, string[] addresses, int concurrencyMax = DEFAULT_CONCURRENCY_MAX)
         {
-	    throw new InvalidOperationException("TEST: DELETE THIS");
             this.nativeClient = NativeClient.Init(clusterID, addresses, concurrencyMax);
             this.clusterID = clusterID;
         }

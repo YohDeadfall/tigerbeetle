@@ -77,8 +77,6 @@ fn error_main() !void {
         ),
     );
 
-    try prepare_directory(&arena, language, tmp_copy.path);
-
     try integrate(&arena, language, tmp_copy.path, true);
 }
 
