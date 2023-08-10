@@ -37,58 +37,15 @@ fn current_commit_post_install_hook(
 ) !void {
     try std.os.chdir(sample_dir);
 
-    // Find the .csproj file so we can swap out the public package
-    // with our local build, if the .csproj file exists.
-    var dir = try std.fs.cwd().openIterableDir(".", .{});
-    defer dir.close();
-
-    var walker = try dir.walk(arena.allocator());
-    defer walker.deinit();
-
-    const csproj_filename = blk: {
-        while (try walker.next()) |entry| {
-            if (std.mem.endsWith(u8, entry.path, ".csproj")) {
-                break :blk entry.path;
-            }
-        }
-
-        return error.CSProjFileNotFound;
-    };
-
-    const public_reference =
-        \\  <ItemGroup>
-        \\    <PackageReference Include="tigerbeetle" Version="0.13.88" />
-        \\  </ItemGroup>
-    ;
-    const old_csproj_contents = try read_file(arena, csproj_filename);
-    assert(std.mem.containsAtLeast(u8, old_csproj_contents, 1, public_reference));
-
-    const local_reference = try std.fmt.allocPrint(
-        arena.allocator(),
-        \\  <ItemGroup>
-        \\    <ProjectReference Include="{s}/src/clients/dotnet/TigerBeetle/TigerBeetle.csproj" />
-        \\  </ItemGroup>
-    ,
-        .{root},
+    try run_shell(arena, "dotnet remove package tigerbeetle");
+    try run_shell(
+        arena,
+        try std.fmt.allocPrint(
+            arena.allocator(),
+            "dotnet add reference {s}/src/clients/dotnet/TigerBeetle/TigerBeetle.csproj",
+            .{root},
+        ),
     );
-    const csproj_contents = try std.mem.replaceOwned(
-        u8,
-        arena.allocator(),
-        old_csproj_contents,
-        public_reference,
-        local_reference,
-    );
-
-    assert(std.mem.containsAtLeast(u8, csproj_contents, 1, local_reference));
-
-    const csproj_file = try std.fs.cwd().openFile(
-        csproj_filename,
-        .{ .mode = .write_only },
-    );
-    defer csproj_file.close();
-
-    try csproj_file.writeAll(csproj_contents);
-    try csproj_file.setEndPos(csproj_contents.len);
 }
 
 pub const DotnetDocs = Docs{
