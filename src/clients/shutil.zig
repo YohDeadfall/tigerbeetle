@@ -2,8 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 
-pub const command_separator = if (builtin.os.tag == .windows) ";" else "&&";
-pub const path_separator = if (builtin.os.tag == .windows) "\\" else "/";
+pub const cmd_sep = if (builtin.os.tag == .windows) ";" else "&&";
 
 pub fn exec(
     arena: *std.heap.ArenaAllocator,
@@ -160,10 +159,10 @@ pub fn git_root(arena: *std.heap.ArenaAllocator) ![]const u8 {
 // waste.
 pub fn script_filename(arena: *std.heap.ArenaAllocator, parts: []const []const u8) ![]const u8 {
     var file_name = std.ArrayList(u8).init(arena.allocator());
-
+    const sep = if (builtin.os.tag == .windows) '\\' else '/';
     _ = try file_name.append('.');
     for (parts) |part| {
-        _ = try file_name.appendSlice(path_separator);
+        _ = try file_name.append(sep);
         _ = try file_name.appendSlice(part);
     }
 
@@ -173,9 +172,10 @@ pub fn script_filename(arena: *std.heap.ArenaAllocator, parts: []const []const u
 
 pub fn binary_filename(arena: *std.heap.ArenaAllocator, parts: []const []const u8) ![]const u8 {
     var file_name = std.ArrayList(u8).init(arena.allocator());
+    const sep = if (builtin.os.tag == .windows) '\\' else '/';
     _ = try file_name.append('.');
     for (parts) |part| {
-        _ = try file_name.appendSlice(path_separator);
+        _ = try file_name.append(sep);
         _ = try file_name.appendSlice(part);
     }
 
@@ -209,9 +209,9 @@ pub fn write_shell_newlines_into_single_line(
 
     var lines = std.mem.split(u8, from, "\n");
     while (lines.next()) |line| {
-        try into.writer().print("{s} {s} ", .{ line, command_separator });
+        try into.writer().print("{s} {s} ", .{ line, cmd_sep });
     }
 
-    // The above commands all end with ` {command_separator} `
+    // The above commands all end with ` {cmd_sep} `
     try into.appendSlice("echo ok");
 }

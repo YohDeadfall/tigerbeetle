@@ -7,7 +7,7 @@ const Docs = @import("../docs_types.zig").Docs;
 const run_shell = @import("../shutil.zig").run_shell;
 
 fn current_commit_pre_install_hook(
-    _: *std.heap.ArenaAllocator,
+    arena: *std.heap.ArenaAllocator,
     _: []const u8,
     _: []const u8,
 ) !void {
@@ -16,9 +16,9 @@ fn current_commit_pre_install_hook(
     // created during the prepare_directory step when we call `dotnet
     // new console`. So we'll get rid of the existing .csproj file
     // before we call `dotnet new`.
-    //run_shell(arena, "rm *.csproj") catch {
-    // Ok if there is no csproj (the client_docs scenario).
-    //};
+    run_shell(arena, "rm *.csproj") catch {
+        // Ok if there is no csproj (the client_docs scenario).
+    };
 }
 
 fn current_commit_post_install_hook(
