@@ -4,6 +4,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const Docs = @import("../docs_types.zig").Docs;
+const binary_filename = @import("../shutil.zig").binary_filename;
 const run_shell = @import("../shutil.zig").run_shell;
 
 fn current_commit_pre_install_hook(
@@ -19,6 +20,9 @@ fn current_commit_pre_install_hook(
     run_shell(arena, "rm *.csproj") catch {
         // Ok if there is no csproj (the client_docs scenario).
     };
+
+    try run_shell(arena, "echo HERE");
+    try run_shell(arena, "ls .");
 }
 
 fn current_commit_post_install_hook(
@@ -26,6 +30,16 @@ fn current_commit_post_install_hook(
     sample_dir: []const u8,
     root: []const u8,
 ) !void {
+    try std.os.chdir(root);
+    try run_shell(
+        arena,
+        try std.fmt.allocPrint(
+            arena.allocator(),
+            "{s} build dotnet_client",
+            .{try binary_filename("zig", "zig")},
+        ),
+    );
+
     try std.os.chdir(sample_dir);
 
     try run_shell(arena, "dotnet remove package tigerbeetle");
