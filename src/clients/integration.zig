@@ -56,7 +56,7 @@ fn error_main() !void {
     var tmp_copy = try TmpDir.init(&arena);
     defer if (!cli_args.keep_tmp) tmp_copy.deinit();
 
-    try prepare_directory(&arena, language.?, tmp_copy.path);
+    try prepare_directory(&arena, language, tmp_copy.path);
 
     // Copy the sample into a temporary directory.
     try run_shell(
@@ -79,7 +79,7 @@ fn error_main() !void {
 
     try prepare_directory(&arena, language, tmp_copy.path);
 
-    try integrate(&arena, language.?, tmp_copy.path, true);
+    try integrate(&arena, language, tmp_copy.path, true);
 }
 
 // Returning errors in main produces useless traces, at least for some
