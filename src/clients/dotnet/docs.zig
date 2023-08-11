@@ -67,7 +67,6 @@ fn current_commit_post_install_hook(
         \\  </ItemGroup>
     ;
     const old_csproj_contents = try std.fs.cwd().readFileAlloc(arena.allocator(), csproj_filename, 1024 * 10);
-    std.debug.print("OLD: '{s}'\n", .{old_csproj_contents});
     assert(std.mem.containsAtLeast(u8, old_csproj_contents, 1, public_reference));
 
     const local_reference = try std.fmt.allocPrint(
