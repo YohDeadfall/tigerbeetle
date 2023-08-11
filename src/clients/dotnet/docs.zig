@@ -6,28 +6,11 @@ const assert = std.debug.assert;
 const Docs = @import("../docs_types.zig").Docs;
 const binary_filename = @import("../shutil.zig").binary_filename;
 const run_shell = @import("../shutil.zig").run_shell;
-
-fn current_commit_pre_install_hook(
-    arena: *std.heap.ArenaAllocator,
-    _: []const u8,
-    _: []const u8,
-) !void {
-    // When running integration tests, the integration tests already
-    // have a .csproj file. But this will jostle with the .csproj
-    // created during the prepare_directory step when we call `dotnet
-    // new console`. So we'll get rid of the existing .csproj file
-    // before we call `dotnet new`.
-    run_shell(arena, "rm *.csproj") catch {
-        // Ok if there is no csproj (the client_docs scenario).
-    };
-
-    try run_shell(arena, "echo HERE");
-    try run_shell(arena, "ls .");
-}
+const path_separator = @import("../shutil.zig").path_separator;
 
 fn current_commit_post_install_hook(
     arena: *std.heap.ArenaAllocator,
-    sample_dir: []const u8,
+    sample_directory: []const u8,
     root: []const u8,
 ) !void {
     try std.os.chdir(root);
@@ -36,20 +19,81 @@ fn current_commit_post_install_hook(
         try std.fmt.allocPrint(
             arena.allocator(),
             "{s} build dotnet_client",
-            .{try binary_filename("zig", "zig")},
+            .{try binary_filename(arena, &[_][]const u8{ "zig", "zig" })},
         ),
     );
 
-    try std.os.chdir(sample_dir);
+    try std.os.chdir(sample_directory);
+    // When running integration tests, the integration tests already
+    // have a .csproj file. But this will jostle with the .csproj
+    // created during the prepare_directory step when we call `dotnet
+    // new console`. So we'll get rid of the existing .csproj file
+    // before we call `dotnet new`.
+    var path_parts_backwards = std.mem.splitBackwards(
+        u8,
+        sample_directory,
+        path_separator,
+    );
+    const directory_name = path_parts_backwards.next().?;
+    run_shell(arena, try std.fmt.allocPrint(
+        arena.allocator(),
+        "rm {s}.csproj",
+        .{directory_name},
+    )) catch {
+        // Ok if there is no csproj (the client_docs scenario).
+    };
 
-    try run_shell(arena, "dotnet remove package tigerbeetle");
-    try run_shell(
-        arena,
-        try std.fmt.allocPrint(
-            arena.allocator(),
-            "dotnet add reference {s}/src/clients/dotnet/TigerBeetle/TigerBeetle.csproj",
-            .{root},
-        ),
+    // Find the .csproj file so we can swap out the public package
+    // with our local build, if the .csproj file exists.
+    var dir = try std.fs.cwd().openIterableDir(".", .{});
+    defer dir.close();
+
+    var walker = try dir.walk(arena.allocator());
+    defer walker.deinit();
+
+    const csproj_filename = blk: {
+        while (try walker.next()) |entry| {
+            if (std.mem.endsWith(u8, entry.path, ".csproj")) {
+                break :blk entry.path;
+            }
+        }
+
+        return error.CSProjFileNotFound;
+    };
+
+    const public_reference =
+        \\  <ItemGroup>
+        \\    <PackageReference Include="tigerbeetle" Version="0.13.88" />
+        \\  </ItemGroup>
+    ;
+    const old_csproj_contents = try std.fs.cwd().readFileAlloc(arena.allocator(), csproj_filename, 1024 * 10);
+    std.debug.print("OLD: '{s}'\n", .{old_csproj_contents});
+    assert(std.mem.containsAtLeast(u8, old_csproj_contents, 1, public_reference));
+
+    const local_reference = try std.fmt.allocPrint(
+        arena.allocator(),
+        \\  <ItemGroup>
+        \\    <ProjectReference Include="{s}/src/clients/dotnet/TigerBeetle/TigerBeetle.csproj" />
+        \\  </ItemGroup>
+        \\  <ItemGroup>
+        \\    <Content Include="{s}/src/clients/dotnet/TigerBeetle/runtimes/$(RuntimeIdentifier)/native/*.*">
+        \\      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        \\    </Content>
+        \\  </ItemGroup>
+    ,
+        .{ root, root },
+    );
+    const csproj_contents = try std.mem.replaceOwned(
+        u8,
+        arena.allocator(),
+        old_csproj_contents,
+        public_reference,
+        local_reference,
+    );
+
+    try std.fs.cwd().writeFile(
+        csproj_filename,
+        csproj_contents,
     );
 }
 
@@ -93,7 +137,7 @@ pub const DotnetDocs = Docs{
     \\Console.WriteLine("SUCCESS");
     ,
 
-    .current_commit_pre_install_hook = current_commit_pre_install_hook,
+    .current_commit_pre_install_hook = null,
     .current_commit_post_install_hook = current_commit_post_install_hook,
 
     .install_commands = 
