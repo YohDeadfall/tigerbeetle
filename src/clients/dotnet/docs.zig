@@ -7,6 +7,7 @@ const Docs = @import("../docs_types.zig").Docs;
 const binary_filename = @import("../shutil.zig").binary_filename;
 const run_shell = @import("../shutil.zig").run_shell;
 const path_separator = @import("../shutil.zig").path_separator;
+const file_or_directory_exists = @import("../shutil.zig").file_or_directory_exists;
 
 fn current_commit_post_install_hook(
     arena: *std.heap.ArenaAllocator,
@@ -24,6 +25,14 @@ fn current_commit_post_install_hook(
     );
 
     try std.os.chdir(sample_directory);
+    // Find the .csproj file so we can swap out the public package
+    // with our local build, if the .csproj file exists.
+    var dir = try std.fs.cwd().openIterableDir(".", .{});
+    defer dir.close();
+
+    var walker = try dir.walk(arena.allocator());
+    defer walker.deinit();
+
     // When running integration tests, the integration tests already
     // have a .csproj file. But this will jostle with the .csproj
     // created during the prepare_directory step when we call `dotnet
@@ -35,38 +44,51 @@ fn current_commit_post_install_hook(
         path_separator,
     );
     const directory_name = path_parts_backwards.next().?;
-    run_shell(arena, try std.fmt.allocPrint(
+    const generated_csproj_filename = try std.fmt.allocPrint(
         arena.allocator(),
-        "rm {s}.csproj",
+        "{s}.csproj",
         .{directory_name},
-    )) catch {
-        // Ok if there is no csproj (the client_docs scenario).
-    };
-
-    // Find the .csproj file so we can swap out the public package
-    // with our local build, if the .csproj file exists.
-    var dir = try std.fs.cwd().openIterableDir(".", .{});
-    defer dir.close();
-
-    var walker = try dir.walk(arena.allocator());
-    defer walker.deinit();
+    );
+    const generated_csproj_file_exists =
+        file_or_directory_exists(generated_csproj_filename);
 
     const csproj_filename = blk: {
         while (try walker.next()) |entry| {
+            // Need to see if there's another .csproj file. If there
+            // is, we can delete the generated one.
+            if (std.mem.eql(u8, entry.path, generated_csproj_filename)) {
+                continue;
+            }
+
             if (std.mem.endsWith(u8, entry.path, ".csproj")) {
+                assert(!std.mem.eql(u8, generated_csproj_filename, entry.path));
+                if (generated_csproj_file_exists) {
+                    try run_shell(arena, try std.fmt.allocPrint(
+                        arena.allocator(),
+                        "rm {s}",
+                        .{generated_csproj_filename},
+                    ));
+                }
+
                 break :blk entry.path;
             }
         }
 
+        if (file_or_directory_exists(generated_csproj_filename)) {
+            break :blk generated_csproj_filename;
+        }
+
         return error.CSProjFileNotFound;
     };
+    assert(file_or_directory_exists(csproj_filename));
+
+    try run_shell(arena, "dotnet remove package tigerbeetle");
 
     const public_reference =
-        \\  <ItemGroup>
-        \\    <PackageReference Include="tigerbeetle" Version="0.13.88" />
-        \\  </ItemGroup>
+        \\</Project>
     ;
     const old_csproj_contents = try std.fs.cwd().readFileAlloc(arena.allocator(), csproj_filename, 1024 * 10);
+    std.debug.print("OLD: '{s}'\n", .{old_csproj_contents});
     assert(std.mem.containsAtLeast(u8, old_csproj_contents, 1, public_reference));
 
     const local_reference = try std.fmt.allocPrint(
@@ -79,15 +101,32 @@ fn current_commit_post_install_hook(
         \\      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         \\    </Content>
         \\  </ItemGroup>
+        \\</Project>
     ,
         .{ root, root },
     );
-    const csproj_contents = try std.mem.replaceOwned(
+
+    const property_group = "</PropertyGroup>";
+    assert(std.mem.containsAtLeast(u8, old_csproj_contents, 1, property_group));
+
+    const property_group_with_runtime_info =
+        \\  <UseCurrentRuntimeIdentifier>true</UseCurrentRuntimeIdentifier>
+        \\</PropertyGroup>
+    ;
+
+    const csproj_contents =
+        try std.mem.replaceOwned(
         u8,
         arena.allocator(),
-        old_csproj_contents,
-        public_reference,
-        local_reference,
+        try std.mem.replaceOwned(
+            u8,
+            arena.allocator(),
+            old_csproj_contents,
+            public_reference,
+            local_reference,
+        ),
+        property_group,
+        property_group_with_runtime_info,
     );
 
     try std.fs.cwd().writeFile(
