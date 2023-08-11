@@ -266,7 +266,9 @@ const Generator = struct {
         if (run_setup_tests) {
             // TODO(Phil): Get dotnet tests working outside of linux in CI.
             // They do work locally on my machines but I can't get them working in CI.
-            if (!(std.mem.eql(u8, self.language.markdown_name, "cs") and builtin.os.tag != .linux)) {
+            if (!(std.mem.eql(u8, self.language.markdown_name, "cs") and
+                builtin.os.tag != .linux))
+            {
                 try env.appendSlice(&[_][]const u8{ "TEST", "true" });
             }
         }
